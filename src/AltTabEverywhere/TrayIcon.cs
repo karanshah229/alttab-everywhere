@@ -15,6 +15,8 @@ internal sealed class TrayIcon : IDisposable
         var enabled = new Forms.ToolStripMenuItem("Enabled") { Checked = true, CheckOnClick = true };
         enabled.CheckedChanged += (_, _) => controller.Enabled = enabled.Checked;
 
+        var editSettings = new Forms.ToolStripMenuItem("Edit settings…", null, (_, _) => OpenSettingsFile());
+
         var openLog = new Forms.ToolStripMenuItem("Open log folder", null, (_, _) =>
         {
             Directory.CreateDirectory(Log.Directory);
@@ -23,6 +25,7 @@ internal sealed class TrayIcon : IDisposable
 
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add(enabled);
+        menu.Items.Add(editSettings);
         menu.Items.Add(openLog);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(new Forms.ToolStripMenuItem("Exit", null, (_, _) => exit()));
@@ -34,6 +37,19 @@ internal sealed class TrayIcon : IDisposable
             ContextMenuStrip = menu,
             Visible = true,
         };
+    }
+
+    /// <summary>Opens settings.json in the default .json editor, or Notepad if none is associated.</summary>
+    private static void OpenSettingsFile()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(SettingsStore.FilePath) { UseShellExecute = true });
+        }
+        catch (Exception)
+        {
+            Process.Start(new ProcessStartInfo("notepad.exe", $"\"{SettingsStore.FilePath}\"") { UseShellExecute = true });
+        }
     }
 
     public void Dispose()

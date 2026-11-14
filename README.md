@@ -2,7 +2,7 @@
 
 An Alt+Tab switcher for Windows 11 that appears on **every monitor at once**. Windows' own switcher only ever shows on the main display.
 
-> Status: **prototype (v0.1)**. The switcher works, but settings are hard-coded and it hasn't been tested much.
+> Status: **early (v0.2)**. Works day to day; settings are a JSON file and there's no settings window yet.
 
 ## Run it
 
@@ -27,12 +27,27 @@ Log file: `%LOCALAPPDATA%\AltTabEverywhere\log.txt`. It records counts and layou
 | Keys | Action |
 |---|---|
 | Alt+Tab / Alt+Shift+Tab | Open the switcher, then move forward or back |
-| Arrow keys (Alt held) | Move the selection |
+| ← / → | Previous / next tile |
+| ↑ / ↓ | Row up / down, wrapping around. Every monitor uses the same grid, so a row is a row on every screen |
 | Release Alt, or press Enter | Switch to the selected window |
 | Esc | Close without switching |
 | Click a tile | Switch to that window |
+| Click outside the switcher | Close it |
 
 A quick Alt+Tab tap switches to the previous window without showing the switcher, as Windows does.
+
+## Settings
+
+Right-click the tray icon and choose **Edit settings…**. This opens `%APPDATA%\AltTabEverywhere\settings.json`, which is created with defaults on first run. Changes apply as soon as you save. If the file has a mistake, the switcher keeps your previous settings and writes the error to the log. Comments and trailing commas are allowed.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `showDelayMs` | `120` | A quick Alt+Tab shorter than this switches windows without showing the switcher. Use `0` to always show it |
+| `showOn` | `"allMonitors"` | `"allMonitors"` or `"monitorUnderCursor"` |
+| `showThumbnails` | `true` | Live window previews. `false` shows icons only |
+| `stayOpenAfterAltRelease` | `false` | Keep the switcher open after you release Alt. Choose with Enter or a click, move with Tab or the arrow keys, close with Esc. A quick tap still switches immediately |
+| `tileWidth` | `240` | Tile width, 80–600. Tiles shrink automatically if there are too many to fit |
+| `thumbnailHeight` | `140` | Preview height, 50–400 |
 
 ## How it works
 
@@ -46,6 +61,18 @@ A quick Alt+Tab tap switches to the previous window without showing the switcher
 | Live previews | `DwmRegisterThumbnail` / `DwmUpdateThumbnailProperties` | `SwitcherWindow.cs` |
 | Switch windows | `SetForegroundWindow`, with an `AttachThreadInput` fallback | `WindowActivator.cs` |
 
+Run the unit tests (grid movement, tile layout, settings parsing) with:
+
+```bash
+dotnet test
+```
+
+To test arrow-key navigation on the real switcher, run `--selftest`. It opens the switcher on every monitor with 1 to 31 windows. For every tile and every arrow key, it checks where the selection lands against where the tiles actually are on each screen. Results go to the log, and the exit code is 0 if every check passed:
+
+```bash
+dotnet run --project src/AltTabEverywhere -- --selftest
+```
+
 To check the window list against Windows, run `--list`. It writes both lists, the shell list and the fallback filter, to `%LOCALAPPDATA%\AltTabEverywhere\windows.txt`. This file contains window titles.
 
 ## Known limitations
@@ -56,16 +83,17 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 - **Minimized windows** show their icon instead of a live preview.
 - **Store/UWP apps** may show a generic icon.
 - If the UI thread stalls, Windows can silently remove the hook. The app keeps running, but Windows' own Alt+Tab returns.
-- Tested on one monitor so far; not yet tested with a second monitor connected.
+- Tested with two monitors at different scaling (125% and 100%) using `--demo` and `--selftest`.
 
 ## Roadmap
 
-- [ ] Settings file (JSON) and a settings window
+- [x] Settings file (JSON) with live reload
+- [ ] Settings window
 - [ ] Group windows of the same app (stacked) or list each one separately
-- [ ] Sticky mode: keep the switcher open after releasing Alt
-- [ ] Turn previews on or off; set preview size
+- [x] Sticky mode: keep the switcher open after releasing Alt
+- [x] Turn previews on or off; set preview size
 - [ ] Per-monitor filter: each monitor lists only its own windows
-- [ ] Choose which monitors show the switcher (all / under cursor / where the active window is)
+- [x] Choose which monitors show the switcher (all / under cursor). Still to do: where the active window is
 - [ ] Type to search window titles
 - [ ] Close a window from the switcher (Delete key or middle-click)
 - [ ] Start with Windows

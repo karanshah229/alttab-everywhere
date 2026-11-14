@@ -19,30 +19,43 @@ namespace AltTabEverywhere;
 /// </summary>
 internal sealed class SwitcherWindow : Window
 {
-    // Tile chrome around the thumbnail: margin 5*2 + padding 6*2 + border 2*2.
-    private const double TileChromeWidth = 26;
-    // Header 24 + header gap 6 + the same 26 of chrome.
-    private const double TileChromeHeight = 56;
-    private const double WindowPadding = 10;
+    private const double WindowPadding = TileLayout.WindowPadding;
 
     private static readonly Brush WindowBackground = Frozen(new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x20)));
     private static readonly Brush SelectedBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)));
     private static readonly Brush SelectedBorder = Frozen(new SolidColorBrush(Color.FromRgb(0x60, 0xCD, 0xFF)));
     private static readonly Brush ThumbBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x50, 0x00, 0x00, 0x00)));
 
-    private readonly Settings _settings;
     private readonly WrapPanel _panel = new() { Orientation = Orientation.Horizontal };
     private readonly List<Tile> _tiles = new();
 
     public MonitorInfo Monitor { get; }
     public IntPtr Handle { get; }
 
+    private int _columns = 1;
+
+    /// <summary>Tiles per row in the current session (the same on every monitor).</summary>
+    public int ColumnCount => _columns;
+
+    /// <summary>The most columns this monitor can fit for <paramref name="count"/> tiles.</summary>
+    public int MaxColumns(int count, Settings settings)
+    {
+        var (width, height) = AvailableSpace();
+        return TileLayout.MaxColumns(count, width, height, settings);
+    }
+
+    private (double Width, double Height) AvailableSpace() =>
+        TileLayout.Available(Monitor.WorkArea.Width / Monitor.Scale, Monitor.WorkArea.Height / Monitor.Scale);
+
+    /// <summary>Tile bounds in DIPs relative to this window, in list order (used by --selftest).</summary>
+    public IReadOnlyList<Rect> TileRects =>
+        _tiles.Select(t => new Rect(t.Root.TranslatePoint(new Point(0, 0), this), t.Root.RenderSize)).ToList();
+
     public event Action<int>? TileClicked;
 
-    public SwitcherWindow(MonitorInfo monitor, Settings settings)
+    public SwitcherWindow(MonitorInfo monitor)
     {
         Monitor = monitor;
-        _settings = settings;
 
         Title = "AltTab Everywhere";
         WindowStyle = WindowStyle.None;
@@ -53,6 +66,7 @@ internal sealed class SwitcherWindow : Window
         SizeToContent = SizeToContent.WidthAndHeight;
         WindowStartupLocation = WindowStartupLocation.Manual;
         Background = WindowBackground;
+        UseLayoutRounding = false; // tile widths must add up exactly for the fixed column count
         Content = new Border { Padding = new Thickness(WindowPadding), Child = _panel };
 
         Handle = new WindowInteropHelper(this).EnsureHandle();
@@ -70,18 +84,21 @@ internal sealed class SwitcherWindow : Window
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(Reposition));
     }
 
-    public void ShowSession(IReadOnlyList<WindowInfo> windows, int selectedIndex)
+    /// <param name="columns">Shared across monitors so tiles line up the same way on every screen.</param>
+    public void ShowSession(IReadOnlyList<WindowInfo> windows, int selectedIndex, Settings settings, int columns)
     {
         ClearThumbnails();
         _panel.Children.Clear();
         _tiles.Clear();
 
-        double maxWidth = Monitor.WorkArea.Width / Monitor.Scale * 0.9;
-        double maxHeight = Monitor.WorkArea.Height / Monitor.Scale * 0.85;
-        double scale = ComputeTileScale(windows.Count, maxWidth, maxHeight);
-        double tileWidth = _settings.TileWidth * scale;
-        double thumbHeight = _settings.ThumbnailHeight * scale;
-        _panel.MaxWidth = maxWidth - 2 * WindowPadding;
+        var (availWidth, availHeight) = AvailableSpace();
+        double scale = TileLayout.FitScale(windows.Count, availWidth, availHeight, settings, columns);
+        double tileWidth = settings.TileWidth * scale;
+        double thumbHeight = settings.ThumbnailHeight * scale;
+        // Exactly `columns` tiles per row. Layout rounding is off, so tile widths add up exactly;
+        // the extra pixel only absorbs floating-point error.
+        _panel.Width = columns * TileLayout.OuterWidth(settings, scale) + 1;
+        _columns = columns;
 
         for (int i = 0; i < windows.Count; i++)
         {
@@ -95,7 +112,7 @@ internal sealed class SwitcherWindow : Window
         UpdateLayout();
         Reposition();
 
-        if (_settings.ShowThumbnails) RegisterThumbnails();
+        if (settings.ShowThumbnails) RegisterThumbnails();
         UpdateThumbnails();
     }
 
@@ -129,20 +146,6 @@ internal sealed class SwitcherWindow : Window
     {
         ClearThumbnails();
         base.OnClosed(e);
-    }
-
-    private double ComputeTileScale(int count, double maxWidth, double maxHeight)
-    {
-        // Shrink tiles until every window fits on screen (no scrolling: DWM thumbnails can't be clipped by WPF).
-        for (double s = 1.0; s > 0.35; s -= 0.05)
-        {
-            double outerW = _settings.TileWidth * s + TileChromeWidth;
-            double outerH = _settings.ThumbnailHeight * s + TileChromeHeight;
-            int columns = Math.Max(1, (int)((maxWidth - 2 * WindowPadding) / outerW));
-            int rows = (count + columns - 1) / columns;
-            if (rows * outerH <= maxHeight - 2 * WindowPadding) return s;
-        }
-        return 0.35;
     }
 
     private Tile CreateTile(WindowInfo window, int index, double tileWidth, double thumbHeight)
@@ -193,7 +196,8 @@ internal sealed class SwitcherWindow : Window
             Child = placeholder,
         };
 
-        var stack = new StackPanel();
+        // Fixed width: without it a long title widens its tile and the columns stop lining up.
+        var stack = new StackPanel { Width = tileWidth };
         stack.Children.Add(header);
         stack.Children.Add(thumbHost);
 

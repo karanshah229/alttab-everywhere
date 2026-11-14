@@ -11,6 +11,8 @@ internal static class Program
     private static int Main(string[] args)
     {
         bool demo = args.Contains("--demo", StringComparer.OrdinalIgnoreCase);
+        bool selfTest = args.Contains("--selftest", StringComparer.OrdinalIgnoreCase);
+        demo |= selfTest; // same single-instance rules: never touches the keyboard hook
 
         if (args.Contains("--list", StringComparer.OrdinalIgnoreCase))
         {
@@ -31,11 +33,20 @@ internal static class Program
             e.Handled = true;
         };
 
-        using var controller = new SwitcherController(new Settings());
+        using var settings = new SettingsStore();
+        settings.Load();
+        using var controller = new SwitcherController(settings);
         TrayIcon? tray = null;
 
         app.Startup += (_, _) =>
         {
+            if (selfTest)
+            {
+                Log.Info("selftest started");
+                controller.RunSelfTest(passed => app.Shutdown(passed ? 0 : 1));
+                return;
+            }
+
             if (demo)
             {
                 Log.Info("demo started");

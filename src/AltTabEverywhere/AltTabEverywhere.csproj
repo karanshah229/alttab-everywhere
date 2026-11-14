@@ -14,7 +14,11 @@
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <RootNamespace>AltTabEverywhere</RootNamespace>
     <AssemblyName>AltTabEverywhere</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AltTabEverywhere.Tests" />
+  </ItemGroup>
 
 </Project>

@@ -28,11 +28,21 @@ internal sealed class KeyboardHook : IDisposable
 
     /// <summary>(isFirstTab, reverse) — reverse when Shift is held.</summary>
     public event Action<bool, bool>? Tab;
+    /// <summary>-1 / +1: previous / next tile (Left/Right, or Tab once Alt is released in stay-open mode).</summary>
     public event Action<int>? Move;
+    /// <summary>-1 / +1: one row up / down (Up/Down arrows).</summary>
+    public event Action<int>? MoveRow;
+    public event Action? AltReleased;
     public event Action? Commit;
     public event Action? Cancel;
 
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Stay-open mode: releasing Alt doesn't end the hook's session, so Tab, arrows, Enter and Esc
+    /// keep working. The controller still decides whether to commit (a quick tap commits).
+    /// </summary>
+    public bool StayOpen { get; set; }
 
     public KeyboardHook()
     {
@@ -88,28 +98,36 @@ internal sealed class KeyboardHook : IDisposable
 
         if ((vk is VK_LMENU or VK_RMENU or VK_MENU) && isUp)
         {
-            // Releasing Alt picks the selected window. Let the Alt-up through so Windows
+            // Releasing Alt normally picks the selected window. Let the Alt-up through so Windows
             // doesn't think Alt is stuck.
-            _sessionActive = false;
-            Post(() => Commit?.Invoke());
+            if (!StayOpen) _sessionActive = false;
+            Post(() => AltReleased?.Invoke());
             return false;
         }
 
         switch (vk)
         {
             case VK_TAB:
-                return true; // swallow the Tab key-up
+                // Alt+Tab was handled above; this is a bare Tab after Alt was released (stay-open mode).
+                if (!isUp && !altHeld) { int d = IsDown(VK_SHIFT) ? -1 : +1; Post(() => Move?.Invoke(d)); }
+                return true; // also swallows the Tab key-up
             case VK_ESCAPE:
                 if (!isUp) { _sessionActive = false; Post(() => Cancel?.Invoke()); }
                 return true;
             case VK_RETURN:
                 if (!isUp) { _sessionActive = false; Post(() => Commit?.Invoke()); }
                 return true;
-            case VK_LEFT or VK_UP:
+            case VK_LEFT:
                 if (!isUp) Post(() => Move?.Invoke(-1));
                 return true;
-            case VK_RIGHT or VK_DOWN:
+            case VK_RIGHT:
                 if (!isUp) Post(() => Move?.Invoke(+1));
+                return true;
+            case VK_UP:
+                if (!isUp) Post(() => MoveRow?.Invoke(-1));
+                return true;
+            case VK_DOWN:
+                if (!isUp) Post(() => MoveRow?.Invoke(+1));
                 return true;
             default:
                 return false;
