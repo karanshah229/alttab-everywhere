@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -25,14 +26,45 @@ internal sealed class SwitcherWindow : Window
     private static readonly Brush SelectedBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)));
     private static readonly Brush SelectedBorder = Frozen(new SolidColorBrush(Color.FromRgb(0x60, 0xCD, 0xFF)));
     private static readonly Brush ThumbBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x50, 0x00, 0x00, 0x00)));
+    private static readonly Brush BadgeBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)));
+
+    // A thin, dark scrollbar; the default WPF one is light grey and wide.
+    private const string ScrollBarStyleXaml = """
+        <Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="ScrollBar">
+          <Setter Property="Width" Value="8"/>
+          <Setter Property="MinWidth" Value="8"/>
+          <Setter Property="Template">
+            <Setter.Value>
+              <ControlTemplate TargetType="ScrollBar">
+                <Track x:Name="PART_Track" IsDirectionReversed="True">
+                  <Track.Thumb>
+                    <Thumb>
+                      <Thumb.Template>
+                        <ControlTemplate TargetType="Thumb">
+                          <Border CornerRadius="4" Background="#66FFFFFF"/>
+                        </ControlTemplate>
+                      </Thumb.Template>
+                    </Thumb>
+                  </Track.Thumb>
+                </Track>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
+        </Style>
+        """;
+
+    private static readonly Style ScrollBarStyle = (Style)System.Windows.Markup.XamlReader.Parse(ScrollBarStyleXaml);
 
     private readonly WrapPanel _panel = new() { Orientation = Orientation.Horizontal };
+    private readonly ScrollViewer _scroll;
     private readonly List<Tile> _tiles = new();
 
     public MonitorInfo Monitor { get; }
     public IntPtr Handle { get; }
 
     private int _columns = 1;
+    private bool _showThumbnails = true;
 
     /// <summary>Tiles per row in the current session (the same on every monitor).</summary>
     public int ColumnCount => _columns;
@@ -47,9 +79,33 @@ internal sealed class SwitcherWindow : Window
     private (double Width, double Height) AvailableSpace() =>
         TileLayout.Available(Monitor.WorkArea.Width / Monitor.Scale, Monitor.WorkArea.Height / Monitor.Scale);
 
-    /// <summary>Tile bounds in DIPs relative to this window, in list order (used by --selftest).</summary>
+    /// <summary>
+    /// Tile bounds in DIPs relative to the tile grid, in list order (used by --selftest).
+    /// Relative to the grid, not the window, so scrolling doesn't change them.
+    /// </summary>
     public IReadOnlyList<Rect> TileRects =>
-        _tiles.Select(t => new Rect(t.Root.TranslatePoint(new Point(0, 0), this), t.Root.RenderSize)).ToList();
+        _tiles.Select(t => new Rect(t.Root.TranslatePoint(new Point(0, 0), _panel), t.Root.RenderSize)).ToList();
+
+    /// <summary>Whether a tile is entirely inside the scrolled viewport (used by --selftest).</summary>
+    public bool IsTileFullyVisible(int index)
+    {
+        if (index < 0 || index >= _tiles.Count) return false;
+        var root = _tiles[index].Root;
+        var topLeft = root.TranslatePoint(new Point(0, 0), _scroll);
+        return topLeft.Y >= -0.5 && topLeft.Y + root.ActualHeight <= _scroll.ViewportHeight + 0.5;
+    }
+
+    /// <summary>Whether the switcher stays within the size cap (75% x 75%) of its monitor's work area.</summary>
+    public bool WithinSizeCap()
+    {
+        Native.GetWindowRect(Handle, out var rect);
+        var work = Monitor.WorkArea;
+        return rect.Width <= work.Width * TileLayout.MaxWidthFraction + 1 &&
+               rect.Height <= work.Height * TileLayout.MaxHeightFraction + 1;
+    }
+
+    /// <summary>Whether the current session needed a scrollbar on this monitor.</summary>
+    public bool IsScrolling => _scroll.ExtentHeight > _scroll.ViewportHeight + 0.5;
 
     public event Action<int>? TileClicked;
 
@@ -67,7 +123,21 @@ internal sealed class SwitcherWindow : Window
         WindowStartupLocation = WindowStartupLocation.Manual;
         Background = WindowBackground;
         UseLayoutRounding = false; // tile widths must add up exactly for the fixed column count
-        Content = new Border { Padding = new Thickness(WindowPadding), Child = _panel };
+
+        _scroll = new ScrollViewer
+        {
+            Content = _panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Focusable = false,
+            // Keep the grid's position exact: the thumbnails are positioned from it.
+            CanContentScroll = false,
+        };
+        _scroll.Resources.Add(typeof(ScrollBar), ScrollBarStyle);
+        // Live previews are drawn by DWM on top of the window, so they must be moved (and
+        // clipped) by hand whenever the grid scrolls.
+        _scroll.ScrollChanged += (_, _) => UpdateThumbnails();
+        Content = new Border { Padding = new Thickness(WindowPadding), Child = _scroll };
 
         Handle = new WindowInteropHelper(this).EnsureHandle();
 
@@ -85,24 +155,29 @@ internal sealed class SwitcherWindow : Window
     }
 
     /// <param name="columns">Shared across monitors so tiles line up the same way on every screen.</param>
-    public void ShowSession(IReadOnlyList<WindowInfo> windows, int selectedIndex, Settings settings, int columns)
+    public void ShowSession(IReadOnlyList<SwitcherItem> items, int selectedIndex, Settings settings, int columns)
     {
         ClearThumbnails();
         _panel.Children.Clear();
         _tiles.Clear();
+        _showThumbnails = settings.ShowThumbnails;
 
         var (availWidth, availHeight) = AvailableSpace();
-        double scale = TileLayout.FitScale(windows.Count, availWidth, availHeight, settings, columns);
+        double scale = TileLayout.FitScale(items.Count, availWidth, availHeight, settings, columns);
         double tileWidth = settings.TileWidth * scale;
         double thumbHeight = settings.ThumbnailHeight * scale;
         // Exactly `columns` tiles per row. Layout rounding is off, so tile widths add up exactly;
         // the extra pixel only absorbs floating-point error.
         _panel.Width = columns * TileLayout.OuterWidth(settings, scale) + 1;
         _columns = columns;
+        // Cap the visible height; anything taller scrolls inside the switcher.
+        _scroll.MaxHeight = availHeight;
+        _scroll.ScrollToTop();
 
-        for (int i = 0; i < windows.Count; i++)
+        for (int i = 0; i < items.Count; i++)
         {
-            var tile = CreateTile(windows[i], i, tileWidth, thumbHeight);
+            var tile = CreateTile(i, tileWidth, thumbHeight);
+            Bind(tile, items[i]);
             _tiles.Add(tile);
             _panel.Children.Add(tile.Root);
         }
@@ -110,9 +185,22 @@ internal sealed class SwitcherWindow : Window
 
         if (!IsVisible) Show();
         UpdateLayout();
+        SetSelected(selectedIndex); // again, now that layout exists, so the selection scrolls into view
+        UpdateLayout();
         Reposition();
 
-        if (settings.ShowThumbnails) RegisterThumbnails();
+        foreach (var tile in _tiles) RegisterThumbnail(tile);
+        UpdateThumbnails();
+    }
+
+    /// <summary>Re-binds one tile after its stack was cycled to a different window.</summary>
+    public void RefreshTile(int index, SwitcherItem item)
+    {
+        if (index < 0 || index >= _tiles.Count) return;
+        var tile = _tiles[index];
+        UnregisterThumbnail(tile);
+        Bind(tile, item);
+        RegisterThumbnail(tile);
         UpdateThumbnails();
     }
 
@@ -124,13 +212,33 @@ internal sealed class SwitcherWindow : Window
             _tiles[i].Root.Background = selected ? SelectedBackground : Brushes.Transparent;
             _tiles[i].Root.BorderBrush = selected ? SelectedBorder : Brushes.Transparent;
         }
+        // Scroll the selection into view; ScrollChanged then repositions the previews.
+        if (index >= 0 && index < _tiles.Count) _tiles[index].Root.BringIntoView();
+    }
+
+    /// <summary>
+    /// Cloaked = fully laid out and rendered, but not shown by DWM. The switcher is built cloaked
+    /// as soon as Alt+Tab is pressed and uncloaked when the show delay ends, so the delay and the
+    /// build overlap instead of adding up.
+    /// </summary>
+    public void SetCloaked(bool cloaked)
+    {
+        int value = cloaked ? 1 : 0;
+        Native.DwmSetWindowAttribute(Handle, Native.DWMWA_CLOAK, ref value, sizeof(int));
     }
 
     public void EndSession()
     {
         ClearThumbnails();
         Hide();
+        // Drop the tiles so their visuals, titles and icon references can be collected while idle.
+        _panel.Children.Clear();
+        _tiles.Clear();
     }
+
+    /// <summary>The window a tile currently shows (used by --selftest).</summary>
+    public IntPtr ShownHandle(int index) =>
+        index >= 0 && index < _tiles.Count && _tiles[index].Window is { } w ? w.Handle : IntPtr.Zero;
 
     public string DescribeForLog()
     {
@@ -148,11 +256,11 @@ internal sealed class SwitcherWindow : Window
         base.OnClosed(e);
     }
 
-    private Tile CreateTile(WindowInfo window, int index, double tileWidth, double thumbHeight)
+    /// <summary>Builds an empty tile; <see cref="Bind"/> fills in the window it shows.</summary>
+    private Tile CreateTile(int index, double tileWidth, double thumbHeight)
     {
         var icon = new Image
         {
-            Source = window.Icon,
             Width = 16,
             Height = 16,
             Margin = new Thickness(0, 0, 6, 0),
@@ -162,23 +270,41 @@ internal sealed class SwitcherWindow : Window
 
         var title = new TextBlock
         {
-            Text = window.Title,
             Foreground = Brushes.WhiteSmoke,
             FontSize = 12,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
         };
 
+        // "×3" on a stack, "2/3" once the user has cycled within it. Hidden for single windows.
+        var badgeText = new TextBlock
+        {
+            Foreground = Brushes.WhiteSmoke,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var badge = new Border
+        {
+            Background = BadgeBackground,
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(6, 1, 6, 1),
+            Margin = new Thickness(6, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = badgeText,
+        };
+
         var header = new DockPanel { Height = 24, Margin = new Thickness(0, 0, 0, 6) };
         DockPanel.SetDock(icon, Dock.Left);
+        DockPanel.SetDock(badge, Dock.Right);
         header.Children.Add(icon);
+        header.Children.Add(badge);
         header.Children.Add(title);
 
         // Shown when there's no live thumbnail (minimized windows, thumbnails off).
         double placeholderSize = Math.Min(48, thumbHeight * 0.5);
         var placeholder = new Image
         {
-            Source = window.Icon,
             Width = placeholderSize,
             Height = placeholderSize,
             Opacity = 0.7,
@@ -218,23 +344,44 @@ internal sealed class SwitcherWindow : Window
             TileClicked?.Invoke(index);
         };
 
-        return new Tile(root, thumbHost, window);
+        return new Tile(root, thumbHost, icon, title, placeholder, badge, badgeText);
     }
 
-    private void RegisterThumbnails()
+    private static void Bind(Tile tile, SwitcherItem item)
     {
-        foreach (var tile in _tiles)
-        {
-            if (tile.Window.IsMinimized) continue; // DWM has nothing useful to show for these
-            if (Native.DwmRegisterThumbnail(Handle, tile.Window.Handle, out var thumb) == 0)
-                tile.Thumbnail = thumb;
-        }
+        var window = item.Shown;
+        tile.Window = window;
+        tile.Icon.Source = window.Icon;
+        tile.Placeholder.Source = window.Icon;
+        tile.Title.Text = window.Title;
+        tile.Badge.Visibility = item.IsStack ? Visibility.Visible : Visibility.Collapsed;
+        tile.BadgeText.Text = item.Current == 0 ? $"×{item.Count}" : $"{item.Current + 1}/{item.Count}";
+    }
+
+    private void RegisterThumbnail(Tile tile)
+    {
+        if (!_showThumbnails || tile.Window is null || tile.Window.IsMinimized) return; // nothing useful to show
+        if (Native.DwmRegisterThumbnail(Handle, tile.Window.Handle, out var thumb) == 0)
+            tile.Thumbnail = thumb;
+    }
+
+    private static void UnregisterThumbnail(Tile tile)
+    {
+        if (tile.Thumbnail == IntPtr.Zero) return;
+        Native.DwmUnregisterThumbnail(tile.Thumbnail);
+        tile.Thumbnail = IntPtr.Zero;
     }
 
     private void UpdateThumbnails()
     {
         if (!IsVisible) return;
         var dpi = VisualTreeHelper.GetDpi(this);
+
+        // The scroll viewport in window pixels: previews outside it are hidden, and previews
+        // straddling its edge are cropped (DWM draws on top of the window and ignores WPF clipping).
+        Point viewOrigin = _scroll.TransformToAncestor(this).Transform(new Point(0, 0));
+        double viewTop = viewOrigin.Y * dpi.DpiScaleY;
+        double viewBottom = (viewOrigin.Y + _scroll.ViewportHeight) * dpi.DpiScaleY;
 
         foreach (var tile in _tiles)
         {
@@ -250,32 +397,38 @@ internal sealed class SwitcherWindow : Window
             double boxHeight = tile.ThumbHost.ActualHeight * dpi.DpiScaleY;
 
             double fit = Math.Min(1.0, Math.Min(boxWidth / source.cx, boxHeight / source.cy));
-            int width = (int)(source.cx * fit);
-            int height = (int)(source.cy * fit);
-            int left = (int)(boxLeft + (boxWidth - width) / 2);
-            int top = (int)(boxTop + (boxHeight - height) / 2);
+            double width = source.cx * fit;
+            double height = source.cy * fit;
+            double left = boxLeft + (boxWidth - width) / 2;
+            double top = boxTop + (boxHeight - height) / 2;
 
+            // Crop to the viewport, mapping the visible slice back to source-window pixels.
+            double visibleTop = Math.Max(top, viewTop);
+            double visibleBottom = Math.Min(top + height, viewBottom);
             var props = new DWM_THUMBNAIL_PROPERTIES
             {
-                dwFlags = Native.DWM_TNP_RECTDESTINATION | Native.DWM_TNP_VISIBLE |
+                dwFlags = Native.DWM_TNP_RECTDESTINATION | Native.DWM_TNP_RECTSOURCE | Native.DWM_TNP_VISIBLE |
                           Native.DWM_TNP_OPACITY | Native.DWM_TNP_SOURCECLIENTAREAONLY,
-                rcDestination = new RECT(left, top, left + width, top + height),
                 opacity = 255,
-                fVisible = 1,
                 fSourceClientAreaOnly = 0,
             };
+            if (visibleBottom - visibleTop < 1)
+            {
+                props.fVisible = 0; // scrolled out of view
+            }
+            else
+            {
+                props.fVisible = 1;
+                props.rcDestination = new RECT((int)left, (int)visibleTop, (int)(left + width), (int)visibleBottom);
+                props.rcSource = new RECT(0, (int)((visibleTop - top) / fit), source.cx, (int)((visibleBottom - top) / fit));
+            }
             Native.DwmUpdateThumbnailProperties(tile.Thumbnail, ref props);
         }
     }
 
     private void ClearThumbnails()
     {
-        foreach (var tile in _tiles)
-        {
-            if (tile.Thumbnail == IntPtr.Zero) continue;
-            Native.DwmUnregisterThumbnail(tile.Thumbnail);
-            tile.Thumbnail = IntPtr.Zero;
-        }
+        foreach (var tile in _tiles) UnregisterThumbnail(tile);
     }
 
     /// <summary>Centers the overlay on its monitor's work area, in physical pixels.</summary>
@@ -296,11 +449,18 @@ internal sealed class SwitcherWindow : Window
         return brush;
     }
 
-    private sealed class Tile(Border root, Border thumbHost, WindowInfo window)
+    private sealed class Tile(Border root, Border thumbHost, Image icon, TextBlock title, Image placeholder,
+        Border badge, TextBlock badgeText)
     {
         public Border Root { get; } = root;
         public Border ThumbHost { get; } = thumbHost;
-        public WindowInfo Window { get; } = window;
+        public Image Icon { get; } = icon;
+        public TextBlock Title { get; } = title;
+        public Image Placeholder { get; } = placeholder;
+        public Border Badge { get; } = badge;
+        public TextBlock BadgeText { get; } = badgeText;
+        /// <summary>The window this tile currently shows (changes when a stack is cycled).</summary>
+        public WindowInfo? Window { get; set; }
         public IntPtr Thumbnail { get; set; }
     }
 }

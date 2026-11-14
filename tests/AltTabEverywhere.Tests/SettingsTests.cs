@@ -10,7 +10,7 @@ public class SettingsTests
         var json = SettingsStore.Serialize(new Settings());
         var settings = SettingsStore.Deserialize(json);
 
-        Assert.Equal(120, settings.ShowDelayMs);
+        Assert.Equal(0, settings.ShowDelayMs);
         Assert.Equal(ShowOn.AllMonitors, settings.ShowOn);
         Assert.True(settings.ShowThumbnails);
         Assert.False(settings.StayOpenAfterAltRelease);

@@ -263,11 +263,13 @@ internal static class Native
 
     // ---- DWM ----
     public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    public const int DWMWA_CLOAK = 13;
     public const int DWMWA_CLOAKED = 14;
     public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     public const int DWMWCP_ROUND = 2;
 
     public const uint DWM_TNP_RECTDESTINATION = 0x01;
+    public const uint DWM_TNP_RECTSOURCE = 0x02;
     public const uint DWM_TNP_OPACITY = 0x04;
     public const uint DWM_TNP_VISIBLE = 0x08;
     public const uint DWM_TNP_SOURCECLIENTAREAONLY = 0x10;

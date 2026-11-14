@@ -12,23 +12,59 @@ public class TileLayoutTests
 
     public static TheoryData<int> Counts => new() { 1, 2, 3, 5, 6, 7, 10, 13, 23, 31, 60 };
 
+    private static int SharedColumns(int count) => Math.Min(
+        TileLayout.MaxColumns(count, Laptop.W, Laptop.H, Defaults),
+        TileLayout.MaxColumns(count, External.W, External.H, Defaults));
+
+    [Fact]
+    public void Available_space_is_capped_at_75_percent_width_and_height()
+    {
+        var (w, h) = TileLayout.Available(1000, 1000);
+        Assert.True(w <= 750);
+        Assert.True(h <= 750);
+    }
+
     [Theory]
     [MemberData(nameof(Counts))]
-    public void Shared_column_count_fits_on_every_monitor(int count)
+    public void Shared_column_count_always_fits_across_every_monitor(int count)
     {
-        int columns = Math.Min(
-            TileLayout.MaxColumns(count, Laptop.W, Laptop.H, Defaults),
-            TileLayout.MaxColumns(count, External.W, External.H, Defaults));
-
+        int columns = SharedColumns(count);
         foreach (var (w, h) in new[] { Laptop, External })
         {
             double scale = TileLayout.FitScale(count, w, h, Defaults, columns);
-            int rows = (count + columns - 1) / columns;
             Assert.True(columns * TileLayout.OuterWidth(Defaults, scale) <= w, $"too wide for {count} tiles");
-            // At the minimum scale very large counts may overflow; up to 31 windows must fit.
-            if (count <= 31)
-                Assert.True(rows * TileLayout.OuterHeight(Defaults, scale) <= h, $"too tall for {count} tiles");
         }
+    }
+
+    [Theory]
+    [MemberData(nameof(Counts))]
+    public void Tiles_either_fit_without_scrolling_or_stop_shrinking_and_scroll(int count)
+    {
+        int columns = SharedColumns(count);
+        foreach (var (w, h) in new[] { Laptop, External })
+        {
+            double scale = TileLayout.FitScale(count, w, h, Defaults, columns);
+            bool scrolls = TileLayout.NeedsScrolling(count, columns, scale, h, Defaults);
+            if (scrolls) Assert.True(scale <= TileLayout.ScrollScale + 1e-9, $"{count} tiles scroll at scale {scale}; should have shrunk first");
+        }
+    }
+
+    [Fact]
+    public void Few_windows_use_full_size_tiles_without_scrolling()
+    {
+        int columns = SharedColumns(3);
+        double scale = TileLayout.FitScale(3, External.W, External.H, Defaults, columns);
+        Assert.Equal(1.0, scale, 3);
+        Assert.False(TileLayout.NeedsScrolling(3, columns, scale, External.H, Defaults));
+    }
+
+    [Fact]
+    public void Many_windows_scroll_instead_of_shrinking_below_the_threshold()
+    {
+        int columns = SharedColumns(60);
+        double scale = TileLayout.FitScale(60, External.W, External.H, Defaults, columns);
+        Assert.True(scale >= TileLayout.ScrollScale - 1e-9, $"shrunk to {scale}");
+        Assert.True(TileLayout.NeedsScrolling(60, columns, scale, External.H, Defaults));
     }
 
     [Theory]
@@ -41,15 +77,5 @@ public class TileLayoutTests
     {
         Assert.True(TileLayout.MaxColumns(10, External.W, External.H, Defaults) >=
                     TileLayout.MaxColumns(10, Laptop.W, Laptop.H, Defaults));
-    }
-
-    [Fact]
-    public void Fixed_columns_never_shrinks_tiles_below_the_free_layout()
-    {
-        // Using fewer columns than a monitor could fit must not make its tiles smaller.
-        double free = TileLayout.FitScale(10, External.W, External.H, Defaults, null);
-        int laptopColumns = TileLayout.MaxColumns(10, Laptop.W, Laptop.H, Defaults);
-        double shared = TileLayout.FitScale(10, External.W, External.H, Defaults, laptopColumns);
-        Assert.True(shared >= free - 1e-9);
     }
 }

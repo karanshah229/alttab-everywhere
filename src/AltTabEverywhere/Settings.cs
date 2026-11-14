@@ -10,16 +10,29 @@ internal enum ShowOn
     MonitorUnderCursor,
 }
 
+internal enum GroupWindows
+{
+    /// <summary>One tile per window.</summary>
+    Separate,
+    /// <summary>One tile per app; Alt+` cycles through that app's windows.</summary>
+    Stacked,
+}
+
 /// <summary>
 /// User settings, stored as JSON in %APPDATA%\AltTabEverywhere\settings.json (see SettingsStore).
 /// Property names map to camelCase JSON keys; missing keys keep these defaults.
 /// </summary>
 internal sealed class Settings
 {
-    /// <summary>A quick Alt+Tab tap shorter than this switches windows without flashing the UI (like Windows).</summary>
-    public int ShowDelayMs { get; set; } = 120;
+    /// <summary>
+    /// Wait this long after Alt+Tab before showing the switcher, so taps shorter than this switch
+    /// without it appearing. 0 (default) shows it as soon as its first frame is drawn.
+    /// </summary>
+    public int ShowDelayMs { get; set; }
 
     public ShowOn ShowOn { get; set; } = ShowOn.AllMonitors;
+
+    public GroupWindows GroupWindows { get; set; } = GroupWindows.Separate;
 
     /// <summary>Live DWM thumbnails. When false, tiles show the app icon only.</summary>
     public bool ShowThumbnails { get; set; } = true;
@@ -42,6 +55,7 @@ internal sealed class Settings
         TileWidth = Math.Clamp(TileWidth, 80, 600);
         ThumbnailHeight = Math.Clamp(ThumbnailHeight, 50, 400);
         if (!Enum.IsDefined(ShowOn)) ShowOn = ShowOn.AllMonitors;
+        if (!Enum.IsDefined(GroupWindows)) GroupWindows = GroupWindows.Separate;
         return this;
     }
 }

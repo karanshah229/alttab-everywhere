@@ -14,7 +14,10 @@
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <RootNamespace>AltTabEverywhere</RootNamespace>
     <AssemblyName>AltTabEverywhere</AssemblyName>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
+    <!-- Always-on app: no background GC thread, and keep the heap small. -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>

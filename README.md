@@ -2,7 +2,9 @@
 
 An Alt+Tab switcher for Windows 11 that appears on **every monitor at once**. Windows' own switcher only ever shows on the main display.
 
-> Status: **early (v0.2)**. Works day to day; settings are a JSON file and there's no settings window yet.
+> Status: **early (v0.3)**. Works day to day; settings are a JSON file and there's no settings window yet.
+
+It's built to run all the time from startup, so it stays light. When idle it does no work (0 ms of CPU) and uses about 10–15 MB working set (about 40–50 MB private). The switcher appears about 120–140 ms after Alt+Tab. See [Resource use](#resource-use).
 
 ## Run it
 
@@ -29,12 +31,16 @@ Log file: `%LOCALAPPDATA%\AltTabEverywhere\log.txt`. It records counts and layou
 | Alt+Tab / Alt+Shift+Tab | Open the switcher, then move forward or back |
 | ← / → | Previous / next tile |
 | ↑ / ↓ | Row up / down, wrapping around. Every monitor uses the same grid, so a row is a row on every screen |
+| Alt+` / Alt+Shift+` | In stacked mode: cycle through the windows of the selected app. The badge shows "2/3" |
 | Release Alt, or press Enter | Switch to the selected window |
 | Esc | Close without switching |
 | Click a tile | Switch to that window |
+| Mouse wheel | Scroll, when there are more windows than fit |
 | Click outside the switcher | Close it |
 
-A quick Alt+Tab tap switches to the previous window without showing the switcher, as Windows does.
+A quick Alt+Tab tap switches to the previous window straight away. The switcher appears as soon as it's drawn; set `showDelayMs` if you'd rather quick taps never show it.
+
+The switcher takes at most 75% of a monitor's width and 75% of its height. With many windows, tiles first shrink slightly (to 75% of their size at most); after that the grid scrolls inside the switcher, and the selection always stays in view.
 
 ## Settings
 
@@ -42,11 +48,12 @@ Right-click the tray icon and choose **Edit settings…**. This opens `%APPDATA%
 
 | Key | Default | Meaning |
 |---|---|---|
-| `showDelayMs` | `120` | A quick Alt+Tab shorter than this switches windows without showing the switcher. Use `0` to always show it |
+| `showDelayMs` | `0` | Wait this long before showing the switcher, so taps shorter than this switch without it appearing. `0` shows it as soon as it's drawn |
 | `showOn` | `"allMonitors"` | `"allMonitors"` or `"monitorUnderCursor"` |
+| `groupWindows` | `"separate"` | `"separate"`: one tile per window. `"stacked"`: one tile per app, with a ×N badge; Alt+` picks a window inside the stack. Apps are told apart by their shell app ID, so Chrome profiles stay separate |
 | `showThumbnails` | `true` | Live window previews. `false` shows icons only |
 | `stayOpenAfterAltRelease` | `false` | Keep the switcher open after you release Alt. Choose with Enter or a click, move with Tab or the arrow keys, close with Esc. A quick tap still switches immediately |
-| `tileWidth` | `240` | Tile width, 80–600. Tiles shrink automatically if there are too many to fit |
+| `tileWidth` | `240` | Tile width, 80–600. Tiles shrink slightly when there are many windows, then the grid scrolls |
 | `thumbnailHeight` | `140` | Preview height, 50–400 |
 
 ## How it works
@@ -58,16 +65,55 @@ Right-click the tray icon and choose **Edit settings…**. This opens `%APPDATA%
 | List the windows | The shell's own Alt+Tab list: undocumented `IApplicationViewCollection` → `IApplicationView::GetShowInSwitchers`, sorted by `GetLastActivationTimestamp`. This matches Windows exactly | `Interop/ShellViews.cs` |
 | Fallback list | `EnumWindows`, `DWMWA_CLOAKED`, Raymond Chen's owner/popup rule. Used only if the shell interfaces fail | `WindowEnumerator.cs` |
 | One overlay per monitor | `EnumDisplayMonitors`, `GetMonitorInfo`, `GetDpiForMonitor`; Per-Monitor V2 DPI manifest | `Monitors.cs`, `SwitcherWindow.cs` |
-| Live previews | `DwmRegisterThumbnail` / `DwmUpdateThumbnailProperties` | `SwitcherWindow.cs` |
+| Live previews | `DwmRegisterThumbnail` / `DwmUpdateThumbnailProperties`. DWM draws them on top of the window, so they are cropped to the scroll viewport by hand | `SwitcherWindow.cs` |
+| Grid and scrolling | One column count for all monitors; 75% × 75% cap | `TileLayout.cs` |
+| App stacks | Grouped by shell app ID, falling back to the executable path | `SwitcherItem.cs` |
 | Switch windows | `SetForegroundWindow`, with an `AttachThreadInput` fallback | `WindowActivator.cs` |
 
-Run the unit tests (grid movement, tile layout, settings parsing) with:
+## Resource use
+
+The app is always running, so idle cost matters more than anything else. Measured on Windows 11 (build 26200) with two monitors, Release build:
+
+| State | Working set | Private | Idle CPU |
+|---|---|---|---|
+| Fresh start (after warm-up and trim) | 14–15 MB | 39 MB | 0 ms per minute |
+| Idle after 50 switcher opens | 10–12 MB | 48–50 MB | 0 ms per minute |
+
+| Speed | Time |
+|---|---|
+| Alt+Tab until the switcher is on screen | ~120–140 ms with two monitors: list windows ~16 ms, build ~30–40 ms per monitor, WPF draw ~30 ms, then the next screen refresh |
+| First Alt+Tab after the app starts | about the same (without the start-up warm-up: ~600 ms) |
+
+How it stays light:
+- **No polling.** It only reacts to the keyboard hook and to changes to the settings file.
+- **Software rendering for WPF.** The overlay is simple, and previews are composited by DWM, so there's no need for a Direct3D device. That device alone cost about 115 MB private, about 1,200 handles, and a 1.5 MB native leak per open.
+- **Memory trim 2 seconds after each close.** The .NET heap is compacted and the working set is handed back to Windows. This is a one-shot timer, not a repeating one.
+- **Workstation GC without the background GC thread.**
+- **The switcher is built the moment you press Alt+Tab, while still invisible** (DWM-cloaked). It's revealed once its first frame is drawn, so it never appears as an empty box. If you set a `showDelayMs`, the wait and the build overlap instead of adding up.
+- **Warm-up at startup.** The switcher is built once, invisibly, so the first Alt+Tab doesn't wait for .NET to compile the code.
+- **The overlay windows are kept alive between opens.** Recreating them made each open about 60 ms slower and didn't lower committed memory.
+
+To reproduce the numbers, run `--measure`. It logs the first-open time after warm-up, a breakdown of where each open's time goes, the Alt+Tab-to-screen time, and memory and handles across 50 opens. Add `--hardware-rendering` to compare against WPF's GPU rendering:
+
+```bash
+dotnet run -c Release --project src/AltTabEverywhere -- --measure
+```
+
+## Tests
+
+Run the unit tests (grid movement, tile layout, grouping, settings parsing) with:
 
 ```bash
 dotnet test
 ```
 
-To test arrow-key navigation on the real switcher, run `--selftest`. It opens the switcher on every monitor with 1 to 31 windows. For every tile and every arrow key, it checks where the selection lands against where the tiles actually are on each screen. Results go to the log, and the exit code is 0 if every check passed:
+To test the real switcher, run `--selftest`. It opens the switcher on every monitor with 1 to 47 tiles, some of them app stacks, and checks:
+- for every tile and every arrow key, where the selection lands against where the tiles actually are on each screen;
+- that the selection is always scrolled into view;
+- that the switcher stays within the 75% × 75% cap;
+- that cycling a stack shows the right window without moving any tiles.
+
+Results go to the log, and the exit code is 0 if every check passed:
 
 ```bash
 dotnet run --project src/AltTabEverywhere -- --selftest
@@ -82,6 +128,7 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 - **Elevated (admin) windows:** while one has focus, the hook receives no keys, so Windows' own Alt+Tab appears instead. Fixing this needs a signed build with `uiAccess="true"` installed under Program Files.
 - **Minimized windows** show their icon instead of a live preview.
 - **Store/UWP apps** may show a generic icon.
+- **Alt+`** uses the key above Tab, wherever it is on your keyboard layout (`VK_OEM_3`). On some non-US layouts that key has a different symbol.
 - If the UI thread stalls, Windows can silently remove the hook. The app keeps running, but Windows' own Alt+Tab returns.
 - Tested with two monitors at different scaling (125% and 100%) using `--demo` and `--selftest`.
 
@@ -89,7 +136,8 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 - [x] Settings file (JSON) with live reload
 - [ ] Settings window
-- [ ] Group windows of the same app (stacked) or list each one separately
+- [x] Group windows of the same app (stacked) or list each one separately
+- [x] Cap the switcher at 75% × 75% and scroll inside it
 - [x] Sticky mode: keep the switcher open after releasing Alt
 - [x] Turn previews on or off; set preview size
 - [ ] Per-monitor filter: each monitor lists only its own windows

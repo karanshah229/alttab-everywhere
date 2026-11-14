@@ -17,7 +17,7 @@ internal sealed class KeyboardHook : IDisposable
 {
     private const int VK_TAB = 0x09, VK_RETURN = 0x0D, VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12,
         VK_ESCAPE = 0x1B, VK_LEFT = 0x25, VK_UP = 0x26, VK_RIGHT = 0x27, VK_DOWN = 0x28,
-        VK_LWIN = 0x5B, VK_RWIN = 0x5C, VK_LMENU = 0xA4, VK_RMENU = 0xA5;
+        VK_LWIN = 0x5B, VK_RWIN = 0x5C, VK_LMENU = 0xA4, VK_RMENU = 0xA5, VK_OEM_3 = 0xC0;
 
     private static readonly IntPtr Swallow = new(1);
 
@@ -32,6 +32,8 @@ internal sealed class KeyboardHook : IDisposable
     public event Action<int>? Move;
     /// <summary>-1 / +1: one row up / down (Up/Down arrows).</summary>
     public event Action<int>? MoveRow;
+    /// <summary>-1 / +1: previous / next window inside the selected app stack (` and Shift+`).</summary>
+    public event Action<int>? CycleStack;
     public event Action? AltReleased;
     public event Action? Commit;
     public event Action? Cancel;
@@ -128,6 +130,9 @@ internal sealed class KeyboardHook : IDisposable
                 return true;
             case VK_DOWN:
                 if (!isUp) Post(() => MoveRow?.Invoke(+1));
+                return true;
+            case VK_OEM_3: // the key above Tab (` on US layouts)
+                if (!isUp) { int d = IsDown(VK_SHIFT) ? -1 : +1; Post(() => CycleStack?.Invoke(d)); }
                 return true;
             default:
                 return false;

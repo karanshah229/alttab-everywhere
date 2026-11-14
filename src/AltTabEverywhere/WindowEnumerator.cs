@@ -207,6 +207,13 @@ internal static class WindowEnumerator
         return source;
     }
 
+    /// <summary>
+    /// Which app a window belongs to, for stacking: the shell's app ID (keeps e.g. Chrome profiles
+    /// apart), or the executable path when there is none (fallback window list).
+    /// </summary>
+    public static string AppKey(WindowInfo window) =>
+        window.AppUserModelId ?? "exe:" + (GetProcessPath(window.Handle) ?? window.Handle.ToString());
+
     private static string? GetProcessPath(IntPtr hwnd)
     {
         Native.GetWindowThreadProcessId(hwnd, out uint pid);
