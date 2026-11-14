@@ -4,7 +4,7 @@ An Alt+Tab switcher for Windows 11 that appears on **every monitor at once**. Wi
 
 > Status: **early (v0.3)**. Works day to day; settings are a JSON file and there's no settings window yet.
 
-It's built to run all the time from startup, so it stays light. When idle it does no work (0 ms of CPU) and uses about 10–15 MB working set (about 40–50 MB private). The switcher appears about 120–140 ms after Alt+Tab. See [Resource use](#resource-use).
+It's built to run all the time from startup, so it stays light. When idle it does no work (0 ms of CPU) and uses about 10–15 MB working set (about 40–50 MB private). The switcher appears about 105–130 ms after Alt+Tab. See [Resource use](#resource-use).
 
 ## Run it
 
@@ -65,6 +65,7 @@ Right-click the tray icon and choose **Edit settings…**. This opens `%APPDATA%
 | List the windows | The shell's own Alt+Tab list: undocumented `IApplicationViewCollection` → `IApplicationView::GetShowInSwitchers`, sorted by `GetLastActivationTimestamp`. This matches Windows exactly | `Interop/ShellViews.cs` |
 | Fallback list | `EnumWindows`, `DWMWA_CLOAKED`, Raymond Chen's owner/popup rule. Used only if the shell interfaces fail | `WindowEnumerator.cs` |
 | One overlay per monitor | `EnumDisplayMonitors`, `GetMonitorInfo`, `GetDpiForMonitor`; Per-Monitor V2 DPI manifest | `Monitors.cs`, `SwitcherWindow.cs` |
+| Parallel overlays | Each overlay window on its own STA thread and dispatcher; calls are marshalled and stay in order | `OverlayHost.cs` |
 | Live previews | `DwmRegisterThumbnail` / `DwmUpdateThumbnailProperties`. DWM draws them on top of the window, so they are cropped to the scroll viewport by hand | `SwitcherWindow.cs` |
 | Grid and scrolling | One column count for all monitors; 75% × 75% cap | `TileLayout.cs` |
 | App stacks | Grouped by shell app ID, falling back to the executable path | `SwitcherItem.cs` |
@@ -76,12 +77,13 @@ The app is always running, so idle cost matters more than anything else. Measure
 
 | State | Working set | Private | Idle CPU |
 |---|---|---|---|
-| Fresh start (after warm-up and trim) | 14–15 MB | 39 MB | 0 ms per minute |
-| Idle after 50 switcher opens | 10–12 MB | 48–50 MB | 0 ms per minute |
+| Fresh start (after warm-up and trim) | 15–16 MB | 41 MB | 0 ms per minute |
+| Idle after 50 switcher opens | 3–12 MB | 52 MB | 0 ms per minute |
 
 | Speed | Time |
 |---|---|
-| Alt+Tab until the switcher is on screen | ~120–140 ms with two monitors: list windows ~16 ms, build ~30–40 ms per monitor, WPF draw ~30 ms, then the next screen refresh |
+| Alt+Tab until the switcher is on screen | ~105–130 ms with two monitors: list windows ~13 ms, both monitors build and draw in parallel (~65 ms), uncloak, then the next screen refresh |
+| After plugging in or unplugging a monitor | the first open takes ~300 ms while the switcher windows are recreated |
 | First Alt+Tab after the app starts | about the same (without the start-up warm-up: ~600 ms) |
 
 How it stays light:
@@ -90,6 +92,7 @@ How it stays light:
 - **Memory trim 2 seconds after each close.** The .NET heap is compacted and the working set is handed back to Windows. This is a one-shot timer, not a repeating one.
 - **Workstation GC without the background GC thread.**
 - **The switcher is built the moment you press Alt+Tab, while still invisible** (DWM-cloaked). It's revealed once its first frame is drawn, so it never appears as an empty box. If you set a `showDelayMs`, the wait and the build overlap instead of adding up.
+- **One UI thread per monitor.** Each monitor's switcher window runs on its own thread, so all of them build and draw at the same time. This saved ~35–50 ms with two monitors, for about +2 MB private memory and one thread per monitor.
 - **Warm-up at startup.** The switcher is built once, invisibly, so the first Alt+Tab doesn't wait for .NET to compile the code.
 - **The overlay windows are kept alive between opens.** Recreating them made each open about 60 ms slower and didn't lower committed memory.
 

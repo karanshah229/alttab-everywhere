@@ -54,7 +54,6 @@ internal sealed class SwitcherWindow : Window
         </Style>
         """;
 
-    private static readonly Style ScrollBarStyle = (Style)System.Windows.Markup.XamlReader.Parse(ScrollBarStyleXaml);
 
     private readonly WrapPanel _panel = new() { Orientation = Orientation.Horizontal };
     private readonly ScrollViewer _scroll;
@@ -133,7 +132,8 @@ internal sealed class SwitcherWindow : Window
             // Keep the grid's position exact: the thumbnails are positioned from it.
             CanContentScroll = false,
         };
-        _scroll.Resources.Add(typeof(ScrollBar), ScrollBarStyle);
+        // Parsed per window: each overlay has its own UI thread, and a Style can't be shared across threads.
+        _scroll.Resources.Add(typeof(ScrollBar), (Style)System.Windows.Markup.XamlReader.Parse(ScrollBarStyleXaml));
         // Live previews are drawn by DWM on top of the window, so they must be moved (and
         // clipped) by hand whenever the grid scrolls.
         _scroll.ScrollChanged += (_, _) => UpdateThumbnails();

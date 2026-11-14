@@ -8,17 +8,27 @@ using System.Windows.Threading;
 namespace AltTabEverywhere;
 
 /// <summary>
-/// --selftest: drives the real overlays through every tile x every arrow key for several window
-/// counts, and checks each move against what the tiles' on-screen positions say should happen —
-/// on every monitor, not just the one the navigation logic is based on.
+/// --selftest and --measure: drive the real overlays (on their own threads) and check or time them.
 /// </summary>
 internal sealed partial class SwitcherController
 {
     private static readonly int[] SelfTestCounts = { 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 17, 23, 31, 47 };
 
+    /// <summary>
+    /// --selftest: for several tile counts (some tiles are app stacks), checks on every monitor that
+    /// each arrow key lands where the tiles' on-screen positions say it should, that the selection is
+    /// scrolled into view, that the switcher stays within its size cap, and that cycling a stack
+    /// shows the right window without moving tiles.
+    /// </summary>
     public async void RunSelfTest(Action<bool> done)
     {
         int checks = 0, failures = 0;
+        void Fail(string message)
+        {
+            failures++;
+            if (failures <= 60) Log.Info("selftest FAIL: " + message);
+        }
+
         try
         {
             var real = WindowEnumerator.GetSwitchableWindows();
@@ -38,21 +48,22 @@ internal sealed partial class SwitcherController
                         : new SwitcherItem(new[] { real[i % real.Count] }))
                     .ToList();
                 _active = true;
+                _sessionId++;
                 _selected = 0;
-                ShowUi();
+                await ShowUiAsync();
                 await Settle();
 
-                var shown = _overlays.Where(o => o.IsVisible).ToList();
-                string grids = string.Join(", ", shown.Select(o =>
-                    $"{o.Monitor.DeviceName}={ColumnsOf(o.TileRects)} cols{(o.IsScrolling ? " scrolling" : "")}"));
+                var shown = _prepared.ToList();
+                string grids = string.Join(", ", shown.Select(o => o.Query(w =>
+                    $"{o.Monitor.DeviceName}={ColumnsOf(w.TileRects)} cols{(w.IsScrolling ? " scrolling" : "")}")));
                 Log.Info($"selftest: {count} tiles; {grids}; navigation uses {_focusOverlay?.Monitor.DeviceName}");
 
                 foreach (var overlay in shown)
                 {
                     checks++;
-                    if (overlay.WithinSizeCap()) continue;
-                    failures++;
-                    Log.Info($"selftest FAIL: {count} tiles, {overlay.Monitor.DeviceName}: switcher larger than {TileLayout.MaxWidthFraction:P0} x {TileLayout.MaxHeightFraction:P0} ({overlay.DescribeForLog()})");
+                    if (!overlay.Query(w => w.WithinSizeCap()))
+                        Fail($"{count} tiles, {overlay.Monitor.DeviceName}: switcher larger than " +
+                             $"{TileLayout.MaxWidthFraction:P0} x {TileLayout.MaxHeightFraction:P0} ({overlay.Query(w => w.DescribeForLog())})");
                 }
 
                 // Stack cycling: the tile must switch to the stack's next window on every monitor,
@@ -61,27 +72,20 @@ internal sealed partial class SwitcherController
                 {
                     if (!_items[index].IsStack) continue;
                     Select(index);
-                    UpdateLayoutOf(shown);
-                    var before = shown.Select(o => o.TileRects).ToList();
+                    var before = shown.Select(o => o.Query(w => { w.UpdateLayout(); return w.TileRects; })).ToList();
                     CycleStack(+1);
-                    UpdateLayoutOf(shown);
                     for (int m = 0; m < shown.Count; m++)
                     {
+                        var (handle, rects) = shown[m].Query(w => { w.UpdateLayout(); return (w.ShownHandle(index), w.TileRects); });
                         checks += 2;
-                        if (shown[m].ShownHandle(index) != _items[index].Shown.Handle)
-                        {
-                            failures++;
-                            Log.Info($"selftest FAIL: {count} tiles, {shown[m].Monitor.DeviceName}, cycle stack {index}: tile shows the wrong window");
-                        }
-                        if (!before[m].SequenceEqual(shown[m].TileRects))
-                        {
-                            failures++;
-                            Log.Info($"selftest FAIL: {count} tiles, {shown[m].Monitor.DeviceName}, cycle stack {index}: tiles moved");
-                        }
+                        if (handle != _items[index].Shown.Handle)
+                            Fail($"{count} tiles, {shown[m].Monitor.DeviceName}, cycle stack {index}: tile shows the wrong window");
+                        if (!before[m].SequenceEqual(rects))
+                            Fail($"{count} tiles, {shown[m].Monitor.DeviceName}, cycle stack {index}: tiles moved");
                     }
                     CycleStack(-1); // back to the first window
                     checks++;
-                    if (_items[index].Current != 0) { failures++; Log.Info($"selftest FAIL: cycle back on stack {index}"); }
+                    if (_items[index].Current != 0) Fail($"cycle back on stack {index}");
                 }
 
                 foreach (var (name, move, expected) in Directions())
@@ -90,25 +94,21 @@ internal sealed partial class SwitcherController
                     {
                         Select(start);
                         move(this);
-                        UpdateLayoutOf(shown);
+                        int selected = _selected;
                         foreach (var overlay in shown)
                         {
-                            checks++;
-                            int want = expected(overlay.TileRects, start);
-                            if (want != _selected)
+                            // Queued after the Select above on the overlay's thread, so it sees it.
+                            var (rects, visible) = overlay.Query(w =>
                             {
-                                failures++;
-                                if (failures <= 60)
-                                    Log.Info($"selftest FAIL: {count} tiles, {overlay.Monitor.DeviceName}, {name} from {start}: got {_selected}, screen says {want}");
-                            }
-
-                            checks++;
-                            if (!overlay.IsTileFullyVisible(_selected))
-                            {
-                                failures++;
-                                if (failures <= 60)
-                                    Log.Info($"selftest FAIL: {count} tiles, {overlay.Monitor.DeviceName}, {name} from {start}: selected tile {_selected} not scrolled into view");
-                            }
+                                w.UpdateLayout();
+                                return (w.TileRects, w.IsTileFullyVisible(selected));
+                            });
+                            checks += 2;
+                            int want = expected(rects, start);
+                            if (want != selected)
+                                Fail($"{count} tiles, {overlay.Monitor.DeviceName}, {name} from {start}: got {selected}, screen says {want}");
+                            if (!visible)
+                                Fail($"{count} tiles, {overlay.Monitor.DeviceName}, {name} from {start}: selected tile {selected} not scrolled into view");
                         }
                     }
                 }
@@ -126,8 +126,8 @@ internal sealed partial class SwitcherController
     }
 
     /// <summary>
-    /// --measure: opens and closes the real switcher many times and logs memory and handle counts,
-    /// to catch per-session leaks. The GC'd numbers at the end separate garbage from real leaks.
+    /// --measure: open times (first after startup, real flow, stage by stage) and memory and
+    /// handle counts across many opens, to catch per-session leaks.
     /// </summary>
     public async void RunMeasure(int sessions, Action done)
     {
@@ -139,73 +139,21 @@ internal sealed partial class SwitcherController
             WarmUpThenTrim();
             await Task.Delay(1500);
             LogResources("measure: after warm-up and trim");
-            {
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                BeginSession(reverse: false, sendMaskKey: false);
-                while (!_uiShown && sw.ElapsedMilliseconds < 3000) await Task.Delay(1);
-                await Dispatcher.Yield(DispatcherPriority.Background);
-                DwmFlush();
-                Log.Info($"measure: first Alt+Tab after startup -> on screen: {sw.Elapsed.TotalMilliseconds:0} ms");
-                await Settle();
-                End();
-                _trimmer.Cancel();
-            }
+            Log.Info($"measure: first Alt+Tab after startup -> on screen: {await TimeOneOpen():0} ms");
 
-            // Open latency: cold (overlay windows created on demand) vs warm (reused).
+            // Cold (overlay windows and threads created on demand) vs warm (reused).
             var cold = new List<double>();
             var warm = new List<double>();
             for (int i = 0; i < 6; i++)
             {
                 bool isCold = i % 2 == 0;
                 if (isCold) DiscardOverlays();
-                BeginSession(reverse: false, sendMaskKey: false);
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                ShowUi();
-                await Dispatcher.Yield(DispatcherPriority.Render); // include the first render pass
-                sw.Stop();
-                (isCold ? cold : warm).Add(sw.Elapsed.TotalMilliseconds);
-                await Settle();
-                End();
+                (isCold ? cold : warm).Add(await TimeOneOpen());
             }
             Log.Info($"measure: open latency cold {string.Join("/", cold.Select(t => t.ToString("0")))} ms, " +
                      $"warm {string.Join("/", warm.Select(t => t.ToString("0")))} ms");
 
-            // Where an open's time goes, in the two states real use alternates between: right after
-            // another open (warm) and after the idle memory trim (the usual case in daily use).
-            foreach (bool afterTrim in new[] { false, true })
-            {
-                var list = new List<double>();
-                var show = new List<double>();
-                var paint = new List<double>();
-                for (int i = 0; i < 7; i++)
-                {
-                    if (afterTrim)
-                    {
-                        MemoryTrimmer.TrimNow();
-                        await Task.Delay(1000);
-                    }
-                    var sw = System.Diagnostics.Stopwatch.StartNew();
-                    BeginSession(reverse: false, sendMaskKey: false);
-                    _showTimer.Stop(); // measure the work, not the deliberate show delay
-                    list.Add(sw.Elapsed.TotalMilliseconds);
-                    sw.Restart();
-                    ShowUi();
-                    show.Add(sw.Elapsed.TotalMilliseconds);
-                    sw.Restart();
-                    await Dispatcher.Yield(DispatcherPriority.Background); // WPF renders the frame
-                    DwmFlush();                                           // DWM composes it on screen
-                    paint.Add(sw.Elapsed.TotalMilliseconds);
-                    await Settle();
-                    End();
-                    _trimmer.Cancel();
-                    await Task.Delay(100);
-                }
-                Log.Info($"measure: open breakdown {(afterTrim ? "after trim" : "warm      ")} (median ms): " +
-                         $"list windows {Median(list):0}, build+layout {Median(show):0}, render+compose {Median(paint):0}, " +
-                         $"total {Median(list) + Median(show) + Median(paint):0} (+ showDelayMs {Settings.ShowDelayMs})");
-            }
-
-            // The real flow: Alt+Tab pressed -> overlays built cloaked -> revealed when the delay ends.
+            // The real flow after the idle trim (the usual case in daily use).
             var visibleAt = new List<double>();
             int cloakedWhilePreparing = 0, revealedVisible = 0, runs = 0;
             for (int i = 0; i < 7; i++, runs++)
@@ -214,9 +162,9 @@ internal sealed partial class SwitcherController
                 await Task.Delay(1000);
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 BeginSession(reverse: false, sendMaskKey: false);
-                if (_prepared.Count > 0 && _prepared.All(o => IsDwmCloaked(o.Handle))) cloakedWhilePreparing++;
-                while (!_uiShown && sw.ElapsedMilliseconds < 2000) await Task.Delay(1);
-                await Dispatcher.Yield(DispatcherPriority.Background);
+                await Task.Delay(5);
+                if (!_uiShown && _prepared.Count > 0 && _prepared.All(o => IsDwmCloaked(o.Handle))) cloakedWhilePreparing++;
+                await WaitUntilShown();
                 DwmFlush();
                 visibleAt.Add(sw.Elapsed.TotalMilliseconds);
                 if (_prepared.Count > 0 && _prepared.All(o => !IsDwmCloaked(o.Handle))) revealedVisible++;
@@ -224,21 +172,20 @@ internal sealed partial class SwitcherController
                 End();
                 _trimmer.Cancel();
             }
+            Log.Info($"measure: Alt+Tab -> on screen (median of {runs}, after trim): {Median(visibleAt):0} ms " +
+                     $"[{string.Join("/", visibleAt.Select(t => t.ToString("0")))}] with showDelayMs {Settings.ShowDelayMs}; " +
+                     $"cloaked while preparing {cloakedWhilePreparing}/{runs}, uncloaked on reveal {revealedVisible}/{runs}");
+
             // Stage-by-stage timing of a few opens.
             for (int i = 0; i < 3; i++)
             {
                 MemoryTrimmer.TrimNow();
                 await Task.Delay(1000);
                 _timing = new OpenTiming();
-                System.Windows.Media.CompositionTarget.Rendering += OnRendering;
                 BeginSession(reverse: false, sendMaskKey: false);
-                _timing.Mark("BeginSession returned");
-                while (!_uiShown && _timing.Marks[^1].Ms < 3000) await Task.Delay(1);
-                await Dispatcher.Yield(DispatcherPriority.Background);
-                _timing.Mark("yield done");
+                await WaitUntilShown();
                 DwmFlush();
                 _timing.Mark("DWM composed");
-                System.Windows.Media.CompositionTarget.Rendering -= OnRendering;
                 Log.Info("measure: stages " + string.Join(", ", _timing.Marks.Select(m => $"{m.Stage} {m.Ms:0}")));
                 _timing = null;
                 await Settle();
@@ -246,14 +193,10 @@ internal sealed partial class SwitcherController
                 _trimmer.Cancel();
             }
 
-            Log.Info($"measure: Alt+Tab -> on screen (median of {runs}, after trim): {Median(visibleAt):0} ms " +
-                     $"[{string.Join("/", visibleAt.Select(t => t.ToString("0")))}] with showDelayMs {Settings.ShowDelayMs}; " +
-                     $"cloaked while preparing {cloakedWhilePreparing}/{runs}, uncloaked on reveal {revealedVisible}/{runs}");
-
             for (int i = 1; i <= sessions; i++)
             {
                 BeginSession(reverse: false, sendMaskKey: false);
-                ShowUi();
+                await WaitUntilShown();
                 await Settle();
                 End();
                 await Task.Delay(50);
@@ -271,11 +214,25 @@ internal sealed partial class SwitcherController
         done();
     }
 
+    /// <summary>Alt+Tab to composed on screen, in ms.</summary>
+    private async Task<double> TimeOneOpen()
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        BeginSession(reverse: false, sendMaskKey: false);
+        await WaitUntilShown();
+        DwmFlush();
+        double ms = sw.Elapsed.TotalMilliseconds;
+        await Settle();
+        End();
+        _trimmer.Cancel();
+        return ms;
+    }
+
     private static void LogResources(string label)
     {
         using var p = System.Diagnostics.Process.GetCurrentProcess();
         Log.Info($"{label}: WS {p.WorkingSet64 / 1048576.0:0.0} MB, private {p.PrivateMemorySize64 / 1048576.0:0.0} MB, " +
-                 $"managed {GC.GetTotalMemory(false) / 1048576.0:0.0} MB, handles {p.HandleCount}, " +
+                 $"managed {GC.GetTotalMemory(false) / 1048576.0:0.0} MB, handles {p.HandleCount}, threads {p.Threads.Count}, " +
                  $"GDI {GetGuiResources(p.Handle, 0)}, USER {GetGuiResources(p.Handle, 1)}");
     }
 
@@ -284,14 +241,6 @@ internal sealed partial class SwitcherController
 
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
     private static extern int DwmFlush();
-
-    private int _renderMarks;
-
-    private void OnRendering(object? sender, EventArgs e)
-    {
-        if (_timing is null || _renderMarks++ > 4) return;
-        _timing.Mark("WPF frame");
-    }
 
     private static bool IsDwmCloaked(IntPtr hwnd) =>
         Interop.Native.DwmGetWindowAttribute(hwnd, Interop.Native.DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0;
@@ -302,14 +251,9 @@ internal sealed partial class SwitcherController
         return sorted.Count == 0 ? 0 : sorted[sorted.Count / 2];
     }
 
-    private static void UpdateLayoutOf(IEnumerable<SwitcherWindow> overlays)
-    {
-        foreach (var overlay in overlays) overlay.UpdateLayout();
-    }
-
     private static async Task Settle()
     {
-        // Let WPF finish layout, DPI changes and repositioning before reading tile positions.
+        // Let the overlays finish layout, DPI changes and repositioning before reading tile positions.
         await Task.Delay(250);
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
     }
