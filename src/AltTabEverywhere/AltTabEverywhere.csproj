@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- Only used for the tray icon (NotifyIcon) and System.Drawing icon extraction. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- WPF + WinForms implicit usings collide (Application, Image, ...), so usings are explicit. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- WFO0003 wants DPI set via the WinForms API; the UI is WPF, so the manifest is the right place. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+    <RootNamespace>AltTabEverywhere</RootNamespace>
+    <AssemblyName>AltTabEverywhere</AssemblyName>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

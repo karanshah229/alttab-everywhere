@@ -1,0 +1,226 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using AltTabEverywhere.Interop;
+
+namespace AltTabEverywhere;
+
+/// <param name="AppUserModelId">The shell's app ID (null with the fallback filter). Basis for grouping windows by app.</param>
+internal sealed record WindowInfo(IntPtr Handle, string Title, ImageSource? Icon, IntPtr Monitor, bool IsMinimized, string? AppUserModelId);
+
+/// <summary>Lists the windows that belong in Alt+Tab, in most-recently-used order.</summary>
+internal static class WindowEnumerator
+{
+    private static readonly Dictionary<IntPtr, ImageSource> HIconCache = new();
+    private static readonly Dictionary<string, ImageSource?> ExeIconCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ShellViews Shell = new();
+    private static string? _lastSource;
+
+    public static List<WindowInfo> GetSwitchableWindows()
+    {
+        if (HIconCache.Count > 512) HIconCache.Clear();
+
+        // Preferred: the shell's own Alt+Tab list (exact match with Windows). Fallback: window-style
+        // heuristics, used if the undocumented interfaces are missing on this Windows build.
+        var fromShell = FromShell();
+        string source = fromShell is null ? "heuristic filter" : "shell view list";
+        if (source != _lastSource)
+        {
+            Log.Info($"window list source: {source}");
+            _lastSource = source;
+        }
+        return fromShell ?? FromHeuristics();
+    }
+
+    /// <summary>--list: both sources side by side, for checking the filters against Windows' Alt+Tab.</summary>
+    public static IEnumerable<string> DescribeSources()
+    {
+        var shell = FromShell();
+        yield return shell is null ? "== shell view list: UNAVAILABLE" : $"== shell view list ({shell.Count})";
+        foreach (var w in shell ?? new List<WindowInfo>()) yield return $"  {w.Title}  [{w.AppUserModelId}]";
+
+        var heuristic = FromHeuristics();
+        yield return $"== heuristic filter ({heuristic.Count})";
+        foreach (var w in heuristic) yield return $"  {w.Title}";
+    }
+
+    private static List<WindowInfo>? FromShell()
+    {
+        var views = Shell.GetSwitcherViews();
+        if (views is null) return null;
+
+        var result = new List<WindowInfo>(views.Count);
+        uint myPid = (uint)Environment.ProcessId;
+        foreach (var view in views)
+        {
+            try
+            {
+                if (!Native.IsWindowVisible(view.Hwnd)) continue;
+                Native.GetWindowThreadProcessId(view.Hwnd, out uint pid);
+                if (pid == myPid) continue;
+                // Windows on other virtual desktops are cloaked; Windows' default is to hide them.
+                if (IsCloaked(view.Hwnd)) continue;
+                result.Add(Describe(view.Hwnd, view.AppUserModelId));
+            }
+            catch (Exception ex)
+            {
+                Log.Error("describe shell view", ex);
+            }
+        }
+        return result;
+    }
+
+    private static bool IsCloaked(IntPtr hwnd) =>
+        Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0;
+
+    private static List<WindowInfo> FromHeuristics()
+    {
+        var result = new List<WindowInfo>();
+        uint myPid = (uint)Environment.ProcessId;
+        IntPtr shellWindow = Native.GetShellWindow();
+
+        Native.EnumWindows((hwnd, _) =>
+        {
+            try
+            {
+                if (IsAltTabWindow(hwnd, shellWindow, myPid))
+                    result.Add(Describe(hwnd, null));
+            }
+            catch (Exception ex)
+            {
+                Log.Error("enumerate window", ex);
+            }
+            return true;
+        }, IntPtr.Zero);
+
+        return result;
+    }
+
+    private static bool IsAltTabWindow(IntPtr hwnd, IntPtr shellWindow, uint myPid)
+    {
+        if (hwnd == shellWindow || !Native.IsWindowVisible(hwnd)) return false;
+        if (Native.GetWindowTextLength(hwnd) == 0) return false;
+
+        Native.GetWindowThreadProcessId(hwnd, out uint pid);
+        if (pid == myPid) return false;
+
+        long exStyle = Native.GetWindowLongPtr(hwnd, Native.GWL_EXSTYLE).ToInt64();
+        bool appWindow = (exStyle & Native.WS_EX_APPWINDOW) != 0;
+        if (!appWindow && (exStyle & (Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE)) != 0) return false;
+
+        // Cloaked = hidden by DWM: suspended Store apps, windows on other virtual desktops, etc.
+        if (IsCloaked(hwnd)) return false;
+
+        if (!appWindow)
+        {
+            // Raymond Chen's rule: an app is represented by its root owner, unless that owner
+            // has a visible last-active popup. Owned dialogs are therefore not listed separately.
+            IntPtr walk = IntPtr.Zero;
+            IntPtr candidate = Native.GetAncestor(hwnd, Native.GA_ROOTOWNER);
+            while (candidate != walk)
+            {
+                walk = candidate;
+                candidate = Native.GetLastActivePopup(walk);
+                if (Native.IsWindowVisible(candidate)) break;
+            }
+            if (walk != hwnd) return false;
+        }
+
+        return true;
+    }
+
+    private static WindowInfo Describe(IntPtr hwnd, string? appUserModelId)
+    {
+        int length = Native.GetWindowTextLength(hwnd);
+        var title = new StringBuilder(length + 1);
+        Native.GetWindowText(hwnd, title, title.Capacity);
+
+        return new WindowInfo(
+            hwnd,
+            title.ToString(),
+            GetIcon(hwnd),
+            Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST),
+            Native.IsIconic(hwnd),
+            appUserModelId);
+    }
+
+    private static ImageSource? GetIcon(IntPtr hwnd)
+    {
+        IntPtr hIcon = IntPtr.Zero;
+        foreach (int type in new[] { Native.ICON_BIG, Native.ICON_SMALL2, Native.ICON_SMALL })
+        {
+            // Short timeout + ABORTIFHUNG so one frozen app can't stall the switcher.
+            if (Native.SendMessageTimeout(hwnd, Native.WM_GETICON, (IntPtr)type, IntPtr.Zero,
+                    Native.SMTO_ABORTIFHUNG, 30, out hIcon) != IntPtr.Zero && hIcon != IntPtr.Zero)
+                break;
+            hIcon = IntPtr.Zero;
+        }
+        if (hIcon == IntPtr.Zero) hIcon = Native.GetClassLongPtr(hwnd, Native.GCLP_HICON);
+        if (hIcon == IntPtr.Zero) hIcon = Native.GetClassLongPtr(hwnd, Native.GCLP_HICONSM);
+
+        if (hIcon != IntPtr.Zero)
+        {
+            if (HIconCache.TryGetValue(hIcon, out var cached)) return cached;
+            try
+            {
+                var source = Imaging.CreateBitmapSourceFromHIcon(hIcon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                source.Freeze();
+                HIconCache[hIcon] = source;
+                return source;
+            }
+            catch
+            {
+                // Fall through to the exe icon.
+            }
+        }
+
+        return GetExeIcon(hwnd);
+    }
+
+    private static ImageSource? GetExeIcon(IntPtr hwnd)
+    {
+        string? path = GetProcessPath(hwnd);
+        if (path is null) return null;
+        if (ExeIconCache.TryGetValue(path, out var cached)) return cached;
+
+        ImageSource? source = null;
+        try
+        {
+            using var icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
+            if (icon is not null)
+            {
+                var bitmap = Imaging.CreateBitmapSourceFromHIcon(icon.Handle, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                bitmap.Freeze();
+                source = bitmap;
+            }
+        }
+        catch
+        {
+            // Protected processes etc. — no icon.
+        }
+
+        ExeIconCache[path] = source;
+        return source;
+    }
+
+    private static string? GetProcessPath(IntPtr hwnd)
+    {
+        Native.GetWindowThreadProcessId(hwnd, out uint pid);
+        IntPtr process = Native.OpenProcess(Native.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (process == IntPtr.Zero) return null;
+        try
+        {
+            var buffer = new StringBuilder(1024);
+            int size = buffer.Capacity;
+            return Native.QueryFullProcessImageName(process, 0, buffer, ref size) ? buffer.ToString() : null;
+        }
+        finally
+        {
+            Native.CloseHandle(process);
+        }
+    }
+}
