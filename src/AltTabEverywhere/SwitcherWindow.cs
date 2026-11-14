@@ -27,6 +27,7 @@ internal sealed class SwitcherWindow : Window
     private static readonly Brush SelectedBorder = Frozen(new SolidColorBrush(Color.FromRgb(0x60, 0xCD, 0xFF)));
     private static readonly Brush ThumbBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x50, 0x00, 0x00, 0x00)));
     private static readonly Brush BadgeBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)));
+    private static readonly Brush CloseHoverBackground = Frozen(new SolidColorBrush(Color.FromRgb(0xC4, 0x2B, 0x1C)));
 
     // A thin, dark scrollbar; the default WPF one is light grey and wide.
     private const string ScrollBarStyleXaml = """
@@ -107,6 +108,11 @@ internal sealed class SwitcherWindow : Window
     public bool IsScrolling => _scroll.ExtentHeight > _scroll.ViewportHeight + 0.5;
 
     public event Action<int>? TileClicked;
+    /// <summary>The × on a tile, or a middle-click (when enabled in settings).</summary>
+    public event Action<int>? TileCloseRequested;
+
+    private bool _middleClickCloses = true;
+    private bool _showCloseButton = true;
 
     public SwitcherWindow(MonitorInfo monitor)
     {
@@ -161,6 +167,8 @@ internal sealed class SwitcherWindow : Window
         _panel.Children.Clear();
         _tiles.Clear();
         _showThumbnails = settings.ShowThumbnails;
+        _middleClickCloses = settings.MiddleClickCloses;
+        _showCloseButton = settings.ShowCloseButton;
 
         var (availWidth, availHeight) = AvailableSpace();
         double scale = TileLayout.FitScale(items.Count, availWidth, availHeight, settings, columns);
@@ -294,10 +302,40 @@ internal sealed class SwitcherWindow : Window
             Child = badgeText,
         };
 
+        // × to close the window; shown only while the mouse is over the tile.
+        var close = new Border
+        {
+            Width = 20,
+            Height = 20,
+            CornerRadius = new CornerRadius(4),
+            Margin = new Thickness(4, 0, 0, 0),
+            Background = Brushes.Transparent,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed,
+            ToolTip = "Close window",
+            Child = new TextBlock
+            {
+                Text = "✕",
+                Foreground = Brushes.WhiteSmoke,
+                FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+        close.MouseEnter += (_, _) => close.Background = CloseHoverBackground;
+        close.MouseLeave += (_, _) => close.Background = Brushes.Transparent;
+        close.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true; // don't also switch to the window
+            TileCloseRequested?.Invoke(index);
+        };
+
         var header = new DockPanel { Height = 24, Margin = new Thickness(0, 0, 0, 6) };
         DockPanel.SetDock(icon, Dock.Left);
+        DockPanel.SetDock(close, Dock.Right);
         DockPanel.SetDock(badge, Dock.Right);
         header.Children.Add(icon);
+        header.Children.Add(close);
         header.Children.Add(badge);
         header.Children.Add(title);
 
@@ -343,6 +381,14 @@ internal sealed class SwitcherWindow : Window
             e.Handled = true;
             TileClicked?.Invoke(index);
         };
+        root.MouseUp += (_, e) =>
+        {
+            if (e.ChangedButton != MouseButton.Middle || !_middleClickCloses) return;
+            e.Handled = true;
+            TileCloseRequested?.Invoke(index);
+        };
+        root.MouseEnter += (_, _) => { if (_showCloseButton) close.Visibility = Visibility.Visible; };
+        root.MouseLeave += (_, _) => close.Visibility = Visibility.Collapsed;
 
         return new Tile(root, thumbHost, icon, title, placeholder, badge, badgeText);
     }
@@ -360,7 +406,8 @@ internal sealed class SwitcherWindow : Window
 
     private void RegisterThumbnail(Tile tile)
     {
-        if (!_showThumbnails || tile.Window is null || tile.Window.IsMinimized) return; // nothing useful to show
+        // Minimized windows and windows on other desktops have nothing useful to show: keep the icon.
+        if (!_showThumbnails || tile.Window is null || tile.Window.IsMinimized || tile.Window.OnOtherDesktop) return;
         if (Native.DwmRegisterThumbnail(Handle, tile.Window.Handle, out var thumb) == 0)
             tile.Thumbnail = thumb;
     }

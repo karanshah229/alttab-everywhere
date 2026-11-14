@@ -70,6 +70,36 @@ internal sealed class SettingsStore : IDisposable
 
     public static string Serialize(Settings settings) => JsonSerializer.Serialize(settings, JsonOptions);
 
+    /// <summary>
+    /// Changes one key in settings.json (used by tray-menu toggles), keeping every other key as the
+    /// user wrote it. Comments in the file are not preserved. The file watcher then reloads it.
+    /// </summary>
+    public static void SetValue(string key, System.Text.Json.Nodes.JsonNode? value)
+    {
+        try
+        {
+            System.Text.Json.Nodes.JsonObject root;
+            try
+            {
+                root = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(FilePath), documentOptions: new JsonDocumentOptions
+                {
+                    CommentHandling = JsonCommentHandling.Skip,
+                    AllowTrailingCommas = true,
+                }) as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject();
+            }
+            catch (Exception ex) when (ex is JsonException or FileNotFoundException)
+            {
+                root = new System.Text.Json.Nodes.JsonObject();
+            }
+            root[key] = value;
+            File.WriteAllText(FilePath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"save setting {key}", ex);
+        }
+    }
+
     public static Settings Deserialize(string json) =>
         (JsonSerializer.Deserialize<Settings>(json, JsonOptions) ?? new Settings()).Normalized();
 

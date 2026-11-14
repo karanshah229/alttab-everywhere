@@ -197,6 +197,13 @@ internal static class Native
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool QueryFullProcessImageName(IntPtr hProcess, int dwFlags, StringBuilder lpExeName, ref int lpdwSize);
 
+    // ---- Messages ----
+    public const uint WM_CLOSE = 0x0010;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
     // ---- Activation / placement ----
     public const int SW_RESTORE = 9;
     public static readonly IntPtr HWND_TOPMOST = new(-1);

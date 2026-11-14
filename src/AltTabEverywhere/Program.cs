@@ -45,6 +45,7 @@ internal static class Program
         settings.Load();
         using var controller = new SwitcherController(settings);
         TrayIcon? tray = null;
+        SystemMessageWindow? systemEvents = null;
 
         app.Startup += (_, _) =>
         {
@@ -71,7 +72,19 @@ internal static class Program
             try
             {
                 controller.Start();
-                tray = new TrayIcon(controller, () => app.Shutdown());
+                tray = new TrayIcon(controller, settings, () => app.Shutdown());
+
+                // Start with Windows: applied now and whenever settings.json changes.
+                StartupRegistration.Apply(settings.Current.StartWithWindows);
+                settings.Changed += () => StartupRegistration.Apply(settings.Current.StartWithWindows);
+
+                // System notifications instead of polling: re-install the hook after sleep or
+                // unlock, rebuild overlays after monitor changes.
+                systemEvents = new SystemMessageWindow();
+                systemEvents.HookMayBeLost += controller.ReinstallHook;
+                systemEvents.DisplayChanged += controller.OnDisplayChanged;
+                systemEvents.ExplorerRestarted += () => Log.Info("Explorer restarted");
+
                 Log.Info("started");
                 // Warm up the switcher (invisibly) so the first Alt+Tab is fast, then give back
                 // the memory that startup and warm-up touched.
@@ -88,6 +101,7 @@ internal static class Program
         };
         app.Exit += (_, _) =>
         {
+            systemEvents?.Dispose();
             tray?.Dispose();
             Log.Info("exited");
         };

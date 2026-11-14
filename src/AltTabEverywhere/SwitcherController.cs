@@ -8,44 +8,60 @@ using AltTabEverywhere.Interop;
 namespace AltTabEverywhere;
 
 /// <summary>
-/// Owns one Alt+Tab session: the tiles (windows or app stacks), selection, and the per-monitor
-/// overlays. Runs on the main UI thread (which also services the keyboard hook); each overlay
-/// runs on its own thread via <see cref="OverlayHost"/>.
+/// Owns one Alt+Tab session: which windows are listed, how they're split across monitors, the
+/// selection, and the per-monitor overlays. Runs on the main UI thread (which also services the
+/// keyboard hook); each overlay runs on its own thread via <see cref="OverlayHost"/>.
+///
+/// The keyboard always drives the "focus" overlay (the monitor under the mouse, or the one with the
+/// active window). When every monitor lists the same windows, all overlays mirror its selection;
+/// when each monitor lists only its own windows, the others can still be clicked.
 /// </summary>
 internal sealed partial class SwitcherController : IDisposable
 {
     private readonly SettingsStore _store;
     private readonly KeyboardHook _hook = new();
     private readonly DispatcherTimer _showTimer;
+    private readonly DispatcherTimer _displayChangeTimer;
     private readonly MemoryTrimmer _trimmer = new(TimeSpan.FromSeconds(2));
     private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
     private readonly List<OverlayHost> _overlays = new();
     private string _monitorLayoutKey = "";
 
-    private List<SwitcherItem> _items = new();
+    // ---- Session state ----
+    private List<WindowInfo> _windows = new();   // every window in this session, after exclusions
+    private List<PlanEntry> _plan = new();       // which overlays show which tiles
+    private List<SwitcherItem> _items = new();   // the focus overlay's tiles (what the keyboard drives)
     private int _selected;
+    private int _columns = 1;                    // the focus overlay's columns (for Up/Down)
+    private OverlayHost? _focusOverlay;
+    private IntPtr _originalForeground;
     private bool _active;
     private int _sessionId;             // bumped on every begin/end, to drop stale async work
     private bool _preparing;            // overlays are being built (cloaked)
     private bool _uiPrepared;           // overlays built and drawn (cloaked until revealed)
     private bool _uiShown;              // overlays visible
     private bool _revealRequested;      // show as soon as the build finishes
-    private List<OverlayHost> _prepared = new();
-    private int _columns = 1;
-    private IntPtr _originalForeground;
-    private OverlayHost? _focusOverlay;
     private bool _warmingUp;
+
+    private sealed record PlanEntry(OverlayHost Host, List<SwitcherItem> Items, int Columns, bool MirrorsSelection);
 
     public SwitcherController(SettingsStore store)
     {
         _store = store;
         _showTimer = new DispatcherTimer();
         _showTimer.Tick += (_, _) => RevealUi();
+        _displayChangeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _displayChangeTimer.Tick += (_, _) =>
+        {
+            _displayChangeTimer.Stop();
+            if (!_active) WarmUpThenTrim(); // rebuild overlays for the new layout before the next Alt+Tab
+        };
 
         _hook.Tab += OnTab;
         _hook.Move += Move;
         _hook.MoveRow += MoveRow;
         _hook.CycleStack += CycleStack;
+        _hook.CloseSelected += CloseSelected;
         _hook.AltReleased += OnAltReleased;
         _hook.Commit += Commit;
         _hook.Cancel += Cancel;
@@ -54,7 +70,10 @@ internal sealed partial class SwitcherController : IDisposable
         ApplySettings();
     }
 
-    private Settings Settings => _store.Current;
+    private Settings Settings => _settingsOverride ?? _store.Current;
+
+    /// <summary>Only set by --selftest, to exercise other settings without touching the user's file.</summary>
+    private Settings? _settingsOverride;
 
     public bool Enabled
     {
@@ -63,6 +82,7 @@ internal sealed partial class SwitcherController : IDisposable
         {
             _hook.Enabled = value;
             if (!value) End();
+            else ReinstallHook("re-enabled from the tray");
         }
     }
 
@@ -71,23 +91,50 @@ internal sealed partial class SwitcherController : IDisposable
     private void ApplySettings()
     {
         _hook.StayOpen = Settings.StayOpenAfterAltRelease;
+        _hook.DeleteCloses = Settings.DeleteKeyCloses;
         _showTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, Settings.ShowDelayMs));
     }
 
+    // ---- System events (no polling) ----
+
+    /// <summary>Windows may have dropped the low-level hook (sleep, unlock...): re-install it.</summary>
+    public void ReinstallHook(string reason)
+    {
+        try
+        {
+            End();
+            _hook.Reinstall();
+            Log.Info($"keyboard hook re-installed ({reason})");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("re-install hook", ex);
+        }
+    }
+
+    /// <summary>Monitors changed: close any session and rebuild the overlays shortly after.</summary>
+    public void OnDisplayChanged()
+    {
+        End();
+        _displayChangeTimer.Stop();
+        _displayChangeTimer.Start();
+    }
+
     /// <summary>
-    /// Builds the switcher once, cloaked, right after startup, so the first real Alt+Tab doesn't pay
-    /// for creating the overlay threads and compiling the code; then trims memory. Nothing is shown.
+    /// Builds the switcher once, cloaked, so the next real Alt+Tab doesn't pay for creating the
+    /// overlay threads and compiling the code; then trims memory. Nothing is shown.
     /// </summary>
     public async void WarmUpThenTrim()
     {
         try
         {
-            _items = WindowGrouping.Build(WindowEnumerator.GetSwitchableWindows(), Settings.GroupWindows, WindowEnumerator.AppKey);
-            if (_items.Count > 0)
+            if (!_active && LoadWindows() > 0)
             {
                 _warmingUp = true;
                 _active = true;
                 _sessionId++;
+                EnsureOverlays();
+                PlanSession(keepFocus: null);
                 _selected = 0;
                 PrepareUi();
                 for (int waited = 0; !_uiPrepared && _warmingUp && waited < 3000; waited += 10) await Task.Delay(10);
@@ -114,13 +161,15 @@ internal sealed partial class SwitcherController : IDisposable
         BeginSession(reverse: false, sendMaskKey: false);
         await WaitUntilShown();
         await Task.Delay(700);
-        Log.Info($"demo: tiles={_items.Count} windows={_items.Sum(i => i.Count)} stacks={_items.Count(i => i.IsStack)} " +
-                 $"selected={_selected} overlays={_overlays.Count} columns={_columns}");
-        foreach (var overlay in _overlays) Log.Info("demo: " + overlay.Query(w => w.DescribeForLog()));
+        Log.Info($"demo: windows={_windows.Count} focus tiles={_items.Count} stacks={_items.Count(i => i.IsStack)} " +
+                 $"selected={_selected} overlays shown={_plan.Count}/{_overlays.Count} columns={_columns}");
+        foreach (var entry in _plan) Log.Info("demo: " + entry.Host.Query(w => w.DescribeForLog()));
         await Task.Delay(duration);
         Cancel();
         done();
     }
+
+    // ---- Session ----
 
     private void OnTab(bool isFirst, bool reverse)
     {
@@ -130,6 +179,15 @@ internal sealed partial class SwitcherController : IDisposable
             return;
         }
         BeginSession(reverse, sendMaskKey: true);
+    }
+
+    /// <summary>Lists the session's windows (with exclusions). Returns how many.</summary>
+    private int LoadWindows()
+    {
+        var settings = Settings;
+        var windows = WindowEnumerator.GetSwitchableWindows(settings.VirtualDesktops == VirtualDesktops.All);
+        _windows = WindowFilter.ApplyExclusions(windows, settings, WindowEnumerator.ProcessPathOf);
+        return _windows.Count;
     }
 
     private void BeginSession(bool reverse, bool sendMaskKey)
@@ -145,18 +203,24 @@ internal sealed partial class SwitcherController : IDisposable
             if (sendMaskKey) WindowActivator.SendMenuMaskKey();
             _timing?.Mark("begin");
             _originalForeground = Native.GetForegroundWindow();
-            var windows = WindowEnumerator.GetSwitchableWindows();
-            _timing?.Mark("windows listed");
-            _items = WindowGrouping.Build(windows, Settings.GroupWindows, WindowEnumerator.AppKey);
-            if (_items.Count == 0)
+            if (LoadWindows() == 0)
             {
                 _hook.EndSession();
                 return;
             }
+            _timing?.Mark("windows listed");
 
             _active = true;
             _sessionId++;
             _revealRequested = false;
+            EnsureOverlays();
+            PlanSession(keepFocus: null);
+            if (_items.Count == 0)
+            {
+                End();
+                return;
+            }
+
             // Like Windows: start on the previous tile, unless focus isn't on a listed window.
             int forwardStart = _items.Count > 1 && _items[0].Contains(_originalForeground) ? 1 : 0;
             _selected = reverse ? _items.Count - 1 : forwardStart;
@@ -174,37 +238,72 @@ internal sealed partial class SwitcherController : IDisposable
         }
     }
 
-    /// <summary>Builds every overlay in parallel (each on its own thread), cloaked.</summary>
+    /// <summary>
+    /// Decides which monitors show a switcher and which tiles each one lists, based on
+    /// showOn and listWindowsFrom. Sets _plan, _items, _columns and _focusOverlay.
+    /// </summary>
+    private void PlanSession(OverlayHost? keepFocus)
+    {
+        var settings = Settings;
+        IntPtr focusMonitor = keepFocus?.Monitor.Handle ?? (settings.ShowOn == ShowOn.MonitorWithActiveWindow
+            ? Native.MonitorFromWindow(_originalForeground, Native.MONITOR_DEFAULTTONEAREST)
+            : Monitors.UnderCursor());
+
+        var candidates = settings.ShowOn == ShowOn.AllMonitors
+            ? _overlays.ToList()
+            : _overlays.Where(o => o.Monitor.Handle == focusMonitor).ToList();
+        if (candidates.Count == 0) candidates = _overlays.Take(1).ToList();
+        var focus = candidates.FirstOrDefault(o => o.Monitor.Handle == focusMonitor) ?? candidates[0];
+
+        var plan = new List<PlanEntry>();
+        if (settings.ListWindowsFrom == ListWindowsFrom.AllMonitors)
+        {
+            // One list and one grid for every monitor: as many columns as the most cramped one fits.
+            var items = Group(_windows);
+            int columns = candidates.Min(o => o.MaxColumns(items.Count, settings));
+            plan.AddRange(candidates.Select(o => new PlanEntry(o, items, columns, MirrorsSelection: true)));
+        }
+        else
+        {
+            foreach (var host in candidates)
+            {
+                var items = Group(WindowFilter.ForMonitor(_windows, ListWindowsFrom.ThisMonitor, host.Monitor.Handle));
+                // A monitor with no windows of its own: the focus monitor falls back to every window
+                // (so Alt+Tab still works), the others simply don't show a switcher.
+                if (items.Count == 0 && host == focus) items = Group(_windows);
+                if (items.Count == 0) continue;
+                plan.Add(new PlanEntry(host, items, host.MaxColumns(items.Count, settings), MirrorsSelection: host == focus));
+            }
+        }
+
+        _plan = plan;
+        var focusEntry = plan.FirstOrDefault(p => p.Host == focus) ?? plan.FirstOrDefault();
+        _focusOverlay = focusEntry?.Host;
+        _items = focusEntry?.Items ?? new List<SwitcherItem>();
+        _columns = focusEntry?.Columns ?? 1;
+    }
+
+    private List<SwitcherItem> Group(IReadOnlyList<WindowInfo> windows) =>
+        WindowGrouping.Build(windows, Settings.GroupWindows, WindowEnumerator.AppKey);
+
+    /// <summary>Builds every planned overlay in parallel (each on its own thread), cloaked.</summary>
     private async void PrepareUi()
     {
-        if (!_active || _preparing || _uiPrepared) return;
+        if (!_active || _preparing || _uiPrepared || _plan.Count == 0) return;
         int session = _sessionId;
         _preparing = true;
 
         try
         {
             var settings = Settings;
-            EnsureOverlays();
-            IntPtr cursorMonitor = Monitors.UnderCursor();
-            var shown = settings.ShowOn == ShowOn.MonitorUnderCursor
-                ? _overlays.Where(o => o.Monitor.Handle == cursorMonitor).ToList()
-                : _overlays.ToList();
-            if (shown.Count == 0) shown = _overlays.Take(1).ToList();
-
-            // One grid for all monitors: as many columns as the most cramped monitor can fit.
-            _columns = shown.Min(o => o.MaxColumns(_items.Count, settings));
-            _prepared = shown;
-            _focusOverlay = shown.FirstOrDefault(o => o.Monitor.Handle == cursorMonitor) ?? shown.FirstOrDefault();
-
-            var items = _items;
+            var plan = _plan;
             int selected = _selected;
-            await Task.WhenAll(shown.Select(o => o.PrepareAsync(items, selected, settings, _columns)));
+            await Task.WhenAll(plan.Select(p => p.Host.PrepareAsync(p.Items, p.MirrorsSelection ? selected : -1, settings, p.Columns)));
             _timing?.Mark("overlays built and drawn");
 
             if (session != _sessionId || !_active) return; // session ended meanwhile; End() hid them
             _uiPrepared = true;
-            if (_selected != selected) // selection moved while building
-                foreach (var overlay in _prepared) overlay.Select(_selected);
+            if (_selected != selected) Select(_selected); // selection moved while building
             if (_revealRequested) RevealUi();
         }
         catch (Exception ex)
@@ -232,7 +331,7 @@ internal sealed partial class SwitcherController : IDisposable
         if (_uiShown) return;
 
         _timing?.Mark("reveal");
-        foreach (var overlay in _prepared) overlay.Reveal();
+        foreach (var entry in _plan) entry.Host.Reveal();
         _uiShown = true;
 
         // Taking focus ourselves means (a) the app underneath can't react to the Alt release and
@@ -264,11 +363,8 @@ internal sealed partial class SwitcherController : IDisposable
         foreach (var monitor in monitors)
         {
             var overlay = new OverlayHost(monitor, _dispatcher);
-            overlay.TileClicked += index =>
-            {
-                _selected = index;
-                Commit();
-            };
+            overlay.TileClicked += index => OnTileClicked(overlay, index);
+            overlay.TileCloseRequested += index => OnTileCloseRequested(overlay, index);
             overlay.Deactivated += OnOverlayDeactivated;
             _overlays.Add(overlay);
         }
@@ -288,6 +384,66 @@ internal sealed partial class SwitcherController : IDisposable
         _monitorLayoutKey = "";
     }
 
+    private SwitcherItem? ItemAt(OverlayHost host, int index)
+    {
+        var entry = _plan.FirstOrDefault(p => p.Host == host);
+        return entry is not null && index >= 0 && index < entry.Items.Count ? entry.Items[index] : null;
+    }
+
+    private void OnTileClicked(OverlayHost host, int index)
+    {
+        if (!_active) return;
+        if (host == _focusOverlay)
+        {
+            _selected = index;
+            Commit();
+            return;
+        }
+        // A click on another monitor's own list (listWindowsFrom = thisMonitor).
+        if (ItemAt(host, index) is { } item)
+        {
+            WindowActivator.Activate(item.Shown.Handle);
+            End();
+        }
+    }
+
+    private void OnTileCloseRequested(OverlayHost host, int index)
+    {
+        if (_active && ItemAt(host, index) is { } item) CloseWindow(item.Shown.Handle);
+    }
+
+    /// <summary>Delete key: close the selected window.</summary>
+    private void CloseSelected()
+    {
+        if (_active && _selected >= 0 && _selected < _items.Count) CloseWindow(_items[_selected].Shown.Handle);
+    }
+
+    /// <summary>
+    /// Asks the window to close (WM_CLOSE, like clicking its ×, so apps can still ask to save) and
+    /// takes it out of the switcher. The switcher stays open on the same monitor.
+    /// </summary>
+    private void CloseWindow(IntPtr hwnd)
+    {
+        if (!_uiPrepared) return; // too early: tiles aren't built yet
+        Native.PostMessage(hwnd, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+        Log.Info("closed a window from the switcher");
+
+        _windows.RemoveAll(w => w.Handle == hwnd);
+        if (_windows.Count == 0)
+        {
+            End();
+            return;
+        }
+
+        var previous = _plan;
+        PlanSession(keepFocus: _focusOverlay);
+        _selected = Math.Clamp(_selected, 0, Math.Max(0, _items.Count - 1));
+        var settings = Settings;
+        foreach (var gone in previous.Where(p => _plan.All(n => n.Host != p.Host))) gone.Host.Hide();
+        foreach (var entry in _plan) entry.Host.Update(entry.Items, entry.MirrorsSelection ? _selected : -1, settings, entry.Columns);
+        if (_items.Count == 0) End();
+    }
+
     /// <summary>The user clicked outside the switcher: close it (mainly for stay-open mode).</summary>
     private void OnOverlayDeactivated()
     {
@@ -295,7 +451,7 @@ internal sealed partial class SwitcherController : IDisposable
         // or we may be mid-Commit, which deactivates the overlay on purpose.
         _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
         {
-            if (!_active || !_uiShown) return;
+            if (!_active || !_uiShown || _traceEnds) return; // (the self-test must not be ended by the user's clicks)
             Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out uint pid);
             if (pid == (uint)Environment.ProcessId) return;
             End();
@@ -310,7 +466,8 @@ internal sealed partial class SwitcherController : IDisposable
     {
         if (!_active || _items.Count == 0) return;
         _selected = index;
-        foreach (var overlay in _prepared) overlay.Select(_selected);
+        foreach (var entry in _plan)
+            if (entry.MirrorsSelection) entry.Host.Select(_selected);
     }
 
     /// <summary>Alt+` / Alt+Shift+`: show the next / previous window inside the selected stack.</summary>
@@ -320,7 +477,8 @@ internal sealed partial class SwitcherController : IDisposable
         var item = _items[_selected];
         if (!item.IsStack) return;
         item.Cycle(delta);
-        foreach (var overlay in _prepared) overlay.Refresh(_selected, item);
+        foreach (var entry in _plan)
+            if (entry.MirrorsSelection) entry.Host.Refresh(_selected, item);
         if (!_uiShown) RevealUi(); // pressed before the switcher appeared: show it now
     }
 
@@ -347,8 +505,12 @@ internal sealed partial class SwitcherController : IDisposable
         End();
     }
 
+    /// <summary>--selftest: log who ends sessions, to diagnose unexpected ends.</summary>
+    private bool _traceEnds;
+
     private void End()
     {
+        if (_traceEnds && _active) Log.Info("selftest: session ended by " + Environment.StackTrace.Split('\n').Skip(2).FirstOrDefault()?.Trim());
         _active = false;
         _sessionId++;
         _preparing = false;
@@ -356,13 +518,16 @@ internal sealed partial class SwitcherController : IDisposable
         _showTimer.Stop();
         _hook.EndSession();
         _focusOverlay = null;
-        if (_prepared.Count == 0) return;
+        var plan = _plan;
+        _plan = new List<PlanEntry>();
+        if (plan.Count == 0) return;
 
-        foreach (var overlay in _prepared) overlay.EndSession();
-        _prepared = new List<OverlayHost>();
+        foreach (var entry in plan) entry.Host.EndSession();
         _uiPrepared = false;
         _uiShown = false;
-        _items = new List<SwitcherItem>(); // drop references to this session's icons and titles
+        // Drop references to this session's icons and titles.
+        _items = new List<SwitcherItem>();
+        _windows = new List<WindowInfo>();
         _trimmer.Schedule();
     }
 
@@ -382,6 +547,7 @@ internal sealed partial class SwitcherController : IDisposable
         _store.Changed -= ApplySettings;
         _hook.Dispose();
         _showTimer.Stop();
+        _displayChangeTimer.Stop();
         DiscardOverlays();
     }
 }

@@ -1,5 +1,17 @@
 # AltTab Everywhere: notes for Claude
 
+## Core philosophies
+
+Every change follows these three rules, in this order when they conflict:
+
+1. **Lowest resource use possible.** It's an always-on app; see the resource budget below.
+2. **As many configuration options as possible.** If a behaviour could reasonably go either way, make it a setting with a sensible default instead of hard-coding it. Document every setting in the README's settings table.
+3. **Open source by default.** Develop in the open on GitHub (`karanshah229/alttab-everywhere`). No telemetry, no closed components, no features that need a paid service.
+
+## Working agreement
+
+The user tests when asked. Otherwise: develop, test (unit tests, `--selftest`, `--measure` where relevant), commit and push without waiting. Ask when genuinely unsure about product decisions.
+
 ## Resource budget (top priority)
 
 This app runs all the time, from Windows startup, usually on a laptop. Every change must keep its **memory, CPU, battery and other resource use as low as possible**.

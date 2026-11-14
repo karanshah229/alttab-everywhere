@@ -42,6 +42,47 @@ public class SettingsTests
     }
 
     [Fact]
+    public void Phase_1_settings_have_safe_defaults()
+    {
+        var settings = SettingsStore.Deserialize("{}");
+        Assert.False(settings.StartWithWindows); // never registers itself without being asked
+        Assert.Equal(ListWindowsFrom.AllMonitors, settings.ListWindowsFrom);
+        Assert.Equal(VirtualDesktops.Current, settings.VirtualDesktops);
+        Assert.Empty(settings.ExcludedApps);
+        Assert.Empty(settings.ExcludedTitles);
+        Assert.True(settings.DeleteKeyCloses);
+        Assert.True(settings.MiddleClickCloses);
+        Assert.True(settings.ShowCloseButton);
+    }
+
+    [Fact]
+    public void Phase_1_settings_parse_from_hand_written_json()
+    {
+        var settings = SettingsStore.Deserialize("""
+            {
+              "showOn": "monitorWithActiveWindow",
+              "listWindowsFrom": "thisMonitor",
+              "virtualDesktops": "all",
+              "excludedApps": ["superwhisper.exe", "Microsoft.Teams"],
+              "excludedTitles": ["Private browsing"],
+              "deleteKeyCloses": false,
+              "startWithWindows": true
+            }
+            """);
+        Assert.Equal(ShowOn.MonitorWithActiveWindow, settings.ShowOn);
+        Assert.Equal(ListWindowsFrom.ThisMonitor, settings.ListWindowsFrom);
+        Assert.Equal(VirtualDesktops.All, settings.VirtualDesktops);
+        Assert.Equal(new[] { "superwhisper.exe", "Microsoft.Teams" }, settings.ExcludedApps);
+        Assert.Equal(new[] { "Private browsing" }, settings.ExcludedTitles);
+        Assert.False(settings.DeleteKeyCloses);
+        Assert.True(settings.StartWithWindows);
+    }
+
+    [Fact]
+    public void Null_lists_become_empty() =>
+        Assert.Empty(SettingsStore.Deserialize("""{ "excludedApps": null }""").ExcludedApps);
+
+    [Fact]
     public void Out_of_range_values_are_clamped()
     {
         var settings = SettingsStore.Deserialize("""{ "showDelayMs": -5, "tileWidth": 5000, "thumbnailHeight": 1 }""");

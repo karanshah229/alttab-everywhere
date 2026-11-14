@@ -10,7 +10,9 @@ using AltTabEverywhere.Interop;
 namespace AltTabEverywhere;
 
 /// <param name="AppUserModelId">The shell's app ID (null with the fallback filter). Basis for grouping windows by app.</param>
-internal sealed record WindowInfo(IntPtr Handle, string Title, ImageSource? Icon, IntPtr Monitor, bool IsMinimized, string? AppUserModelId);
+/// <param name="OnOtherDesktop">On another virtual desktop (only listed with virtualDesktops = all).</param>
+internal sealed record WindowInfo(IntPtr Handle, string Title, ImageSource? Icon, IntPtr Monitor, bool IsMinimized,
+    string? AppUserModelId, bool OnOtherDesktop = false);
 
 /// <summary>Lists the windows that belong in Alt+Tab, in most-recently-used order.</summary>
 internal static class WindowEnumerator
@@ -20,35 +22,57 @@ internal static class WindowEnumerator
     private static readonly ShellViews Shell = new();
     private static string? _lastSource;
 
-    public static List<WindowInfo> GetSwitchableWindows()
+    /// <param name="includeOtherDesktops">Also list windows on other virtual desktops.</param>
+    public static List<WindowInfo> GetSwitchableWindows(bool includeOtherDesktops = false)
     {
         if (HIconCache.Count > 512) HIconCache.Clear();
 
         // Preferred: the shell's own Alt+Tab list (exact match with Windows). Fallback: window-style
         // heuristics, used if the undocumented interfaces are missing on this Windows build.
-        var fromShell = FromShell();
+        var fromShell = FromShell(includeOtherDesktops);
         string source = fromShell is null ? "heuristic filter" : "shell view list";
         if (source != _lastSource)
         {
             Log.Info($"window list source: {source}");
             _lastSource = source;
         }
-        return fromShell ?? FromHeuristics();
+        return fromShell ?? FromHeuristics(includeOtherDesktops);
+    }
+
+    /// <summary>The window's executable path, or null (e.g. protected processes).</summary>
+    public static string? ProcessPathOf(WindowInfo window) => GetProcessPath(window.Handle);
+
+    private const int DWM_CLOAKED_SHELL = 0x2;
+
+    /// <summary>
+    /// Whether a cloaked window should still be listed: only when other desktops are wanted and the
+    /// shell cloaked it because it lives on another virtual desktop. Sets <paramref name="otherDesktop"/>.
+    /// </summary>
+    private static bool PassesCloakCheck(IntPtr hwnd, bool includeOtherDesktops, out bool otherDesktop)
+    {
+        otherDesktop = false;
+        if (Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_CLOAKED, out int cloaked, sizeof(int)) != 0 || cloaked == 0)
+            return true;
+        if (!includeOtherDesktops || (cloaked & DWM_CLOAKED_SHELL) == 0 || !VirtualDesktop.IsOnOtherDesktop(hwnd))
+            return false;
+        otherDesktop = true;
+        return true;
     }
 
     /// <summary>--list: both sources side by side, for checking the filters against Windows' Alt+Tab.</summary>
     public static IEnumerable<string> DescribeSources()
     {
-        var shell = FromShell();
+        var shell = FromShell(includeOtherDesktops: true);
         yield return shell is null ? "== shell view list: UNAVAILABLE" : $"== shell view list ({shell.Count})";
-        foreach (var w in shell ?? new List<WindowInfo>()) yield return $"  {w.Title}  [{w.AppUserModelId}]";
+        foreach (var w in shell ?? new List<WindowInfo>())
+            yield return $"  {w.Title}  [{w.AppUserModelId}]{(w.OnOtherDesktop ? "  (other desktop)" : "")}";
 
-        var heuristic = FromHeuristics();
+        var heuristic = FromHeuristics(includeOtherDesktops: false);
         yield return $"== heuristic filter ({heuristic.Count})";
         foreach (var w in heuristic) yield return $"  {w.Title}";
     }
 
-    private static List<WindowInfo>? FromShell()
+    private static List<WindowInfo>? FromShell(bool includeOtherDesktops)
     {
         var views = Shell.GetSwitcherViews();
         if (views is null) return null;
@@ -62,9 +86,9 @@ internal static class WindowEnumerator
                 if (!Native.IsWindowVisible(view.Hwnd)) continue;
                 Native.GetWindowThreadProcessId(view.Hwnd, out uint pid);
                 if (pid == myPid) continue;
-                // Windows on other virtual desktops are cloaked; Windows' default is to hide them.
-                if (IsCloaked(view.Hwnd)) continue;
-                result.Add(Describe(view.Hwnd, view.AppUserModelId));
+                // Windows on other virtual desktops are cloaked; listed only if asked for.
+                if (!PassesCloakCheck(view.Hwnd, includeOtherDesktops, out bool otherDesktop)) continue;
+                result.Add(Describe(view.Hwnd, view.AppUserModelId, otherDesktop));
             }
             catch (Exception ex)
             {
@@ -74,10 +98,7 @@ internal static class WindowEnumerator
         return result;
     }
 
-    private static bool IsCloaked(IntPtr hwnd) =>
-        Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0;
-
-    private static List<WindowInfo> FromHeuristics()
+    private static List<WindowInfo> FromHeuristics(bool includeOtherDesktops)
     {
         var result = new List<WindowInfo>();
         uint myPid = (uint)Environment.ProcessId;
@@ -87,8 +108,8 @@ internal static class WindowEnumerator
         {
             try
             {
-                if (IsAltTabWindow(hwnd, shellWindow, myPid))
-                    result.Add(Describe(hwnd, null));
+                if (IsAltTabWindow(hwnd, shellWindow, myPid, includeOtherDesktops, out bool otherDesktop))
+                    result.Add(Describe(hwnd, null, otherDesktop));
             }
             catch (Exception ex)
             {
@@ -100,8 +121,9 @@ internal static class WindowEnumerator
         return result;
     }
 
-    private static bool IsAltTabWindow(IntPtr hwnd, IntPtr shellWindow, uint myPid)
+    private static bool IsAltTabWindow(IntPtr hwnd, IntPtr shellWindow, uint myPid, bool includeOtherDesktops, out bool otherDesktop)
     {
+        otherDesktop = false;
         if (hwnd == shellWindow || !Native.IsWindowVisible(hwnd)) return false;
         if (Native.GetWindowTextLength(hwnd) == 0) return false;
 
@@ -113,7 +135,7 @@ internal static class WindowEnumerator
         if (!appWindow && (exStyle & (Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE)) != 0) return false;
 
         // Cloaked = hidden by DWM: suspended Store apps, windows on other virtual desktops, etc.
-        if (IsCloaked(hwnd)) return false;
+        if (!PassesCloakCheck(hwnd, includeOtherDesktops, out otherDesktop)) return false;
 
         if (!appWindow)
         {
@@ -133,7 +155,7 @@ internal static class WindowEnumerator
         return true;
     }
 
-    private static WindowInfo Describe(IntPtr hwnd, string? appUserModelId)
+    private static WindowInfo Describe(IntPtr hwnd, string? appUserModelId, bool otherDesktop)
     {
         int length = Native.GetWindowTextLength(hwnd);
         var title = new StringBuilder(length + 1);
@@ -145,7 +167,8 @@ internal static class WindowEnumerator
             GetIcon(hwnd),
             Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST),
             Native.IsIconic(hwnd),
-            appUserModelId);
+            appUserModelId,
+            otherDesktop);
     }
 
     private static ImageSource? GetIcon(IntPtr hwnd)

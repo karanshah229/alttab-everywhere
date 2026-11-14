@@ -26,6 +26,8 @@ internal sealed class OverlayHost
     public event Action<int>? TileClicked;
     /// <summary>Raised on the controller's thread.</summary>
     public event Action? Deactivated;
+    /// <summary>Raised on the controller's thread.</summary>
+    public event Action<int>? TileCloseRequested;
 
     public OverlayHost(MonitorInfo monitor, Dispatcher controller)
     {
@@ -43,6 +45,7 @@ internal sealed class OverlayHost
                 window = new SwitcherWindow(monitor);
                 window.TileClicked += index => controller.InvokeAsync(() => TileClicked?.Invoke(index));
                 window.Deactivated += (_, _) => controller.InvokeAsync(() => Deactivated?.Invoke());
+                window.TileCloseRequested += index => controller.InvokeAsync(() => TileCloseRequested?.Invoke(index));
             }
             catch (Exception ex)
             {
@@ -79,6 +82,16 @@ internal sealed class OverlayHost
             _window.ShowSession(items, selected, settings, columns);
             await Dispatcher.Yield(DispatcherPriority.Background); // runs after the Render pass
         }).Task.Unwrap();
+
+    /// <summary>Rebuilds the tiles of a visible switcher in place (e.g. after a window was closed).</summary>
+    public void Update(IReadOnlyList<SwitcherItem> items, int selected, Settings settings, int columns) =>
+        _dispatcher.InvokeAsync(() => _window.ShowSession(items, selected, settings, columns));
+
+    /// <summary>Hides this monitor's switcher (e.g. its last window was closed) without ending the session.</summary>
+    public void Hide() => _dispatcher.InvokeAsync(() =>
+    {
+        if (_window.IsVisible) _window.EndSession();
+    });
 
     /// <summary>Uncloaks the (already drawn) switcher. A DWM call on the HWND: no thread hop needed.</summary>
     public void Reveal() => _window.SetCloaked(false);

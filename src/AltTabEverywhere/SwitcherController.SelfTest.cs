@@ -50,10 +50,12 @@ internal sealed partial class SwitcherController
                 _active = true;
                 _sessionId++;
                 _selected = 0;
+                _traceEnds = true;
+                PlanForTest(_items);
                 await ShowUiAsync();
                 await Settle();
 
-                var shown = _prepared.ToList();
+                var shown = _plan.Select(p => p.Host).ToList();
                 string grids = string.Join(", ", shown.Select(o => o.Query(w =>
                     $"{o.Monitor.DeviceName}={ColumnsOf(w.TileRects)} cols{(w.IsScrolling ? " scrolling" : "")}")));
                 Log.Info($"selftest: {count} tiles; {grids}; navigation uses {_focusOverlay?.Monitor.DeviceName}");
@@ -114,15 +116,63 @@ internal sealed partial class SwitcherController
                 }
                 End();
             }
+
+            // listWindowsFrom = thisMonitor: each monitor's switcher lists only its own windows.
+            _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+            _settingsOverride.ListWindowsFrom = ListWindowsFrom.ThisMonitor;
+            _settingsOverride.ShowOn = ShowOn.AllMonitors;
+            _settingsOverride.ShowDelayMs = 0;
+            BeginSession(reverse: false, sendMaskKey: false);
+            await WaitUntilShown();
+            await Settle();
+            var all = _windows.ToList();
+            foreach (var entry in _plan)
+            {
+                var windows = entry.Items.SelectMany(i => i.Windows).ToList();
+                bool ownOnly = windows.All(w => w.Monitor == entry.Host.Monitor.Handle);
+                bool focusFallback = entry.Host == _focusOverlay && windows.Count == all.Count;
+                int tiles = entry.Host.Query(w => w.TileRects.Count);
+                checks += 2;
+                if (!ownOnly && !focusFallback)
+                    Fail($"per-monitor: {entry.Host.Monitor.DeviceName} lists windows from another monitor");
+                if (tiles != entry.Items.Count)
+                    Fail($"per-monitor: {entry.Host.Monitor.DeviceName} shows {tiles} tiles, expected {entry.Items.Count}");
+                Log.Info($"selftest: per-monitor {entry.Host.Monitor.DeviceName}: {entry.Items.Count} tiles{(focusFallback && !ownOnly ? " (focus fallback: all windows)" : "")}");
+            }
+            int listed = _plan.Sum(p => p.Items.Sum(i => i.Count));
+            bool fallbackUsed = _plan.Any(p => p.Host == _focusOverlay && p.Items.Sum(i => i.Count) == all.Count && _plan.Count > 1);
+            checks++;
+            if (!fallbackUsed && _overlays.Count == _plan.Count && listed != all.Count)
+                Fail($"per-monitor: {listed} windows listed across monitors, expected {all.Count}");
+            End();
+            _settingsOverride = null;
         }
         catch (Exception ex)
         {
             Log.Error("selftest", ex);
             failures++;
         }
+        finally
+        {
+            _settingsOverride = null;
+        }
 
         Log.Info($"selftest: {checks} checks, {failures} failures");
         done(failures == 0);
+    }
+
+    /// <summary>A shared plan over every monitor for synthetic tiles (self-test).</summary>
+    private void PlanForTest(List<SwitcherItem> items)
+    {
+        EnsureOverlays();
+        var settings = Settings;
+        var hosts = _overlays.ToList();
+        int columns = hosts.Min(o => o.MaxColumns(items.Count, settings));
+        _plan = hosts.Select(h => new PlanEntry(h, items, columns, MirrorsSelection: true)).ToList();
+        _items = items;
+        _columns = columns;
+        IntPtr cursor = Monitors.UnderCursor();
+        _focusOverlay = hosts.FirstOrDefault(h => h.Monitor.Handle == cursor) ?? hosts[0];
     }
 
     /// <summary>
@@ -163,11 +213,11 @@ internal sealed partial class SwitcherController
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 BeginSession(reverse: false, sendMaskKey: false);
                 await Task.Delay(5);
-                if (!_uiShown && _prepared.Count > 0 && _prepared.All(o => IsDwmCloaked(o.Handle))) cloakedWhilePreparing++;
+                if (!_uiShown && _plan.Count > 0 && _plan.Select(p => p.Host).All(o => IsDwmCloaked(o.Handle))) cloakedWhilePreparing++;
                 await WaitUntilShown();
                 DwmFlush();
                 visibleAt.Add(sw.Elapsed.TotalMilliseconds);
-                if (_prepared.Count > 0 && _prepared.All(o => !IsDwmCloaked(o.Handle))) revealedVisible++;
+                if (_plan.Count > 0 && _plan.Select(p => p.Host).All(o => !IsDwmCloaked(o.Handle))) revealedVisible++;
                 await Settle();
                 End();
                 _trimmer.Cancel();

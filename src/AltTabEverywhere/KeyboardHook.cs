@@ -17,7 +17,7 @@ internal sealed class KeyboardHook : IDisposable
 {
     private const int VK_TAB = 0x09, VK_RETURN = 0x0D, VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12,
         VK_ESCAPE = 0x1B, VK_LEFT = 0x25, VK_UP = 0x26, VK_RIGHT = 0x27, VK_DOWN = 0x28,
-        VK_LWIN = 0x5B, VK_RWIN = 0x5C, VK_LMENU = 0xA4, VK_RMENU = 0xA5, VK_OEM_3 = 0xC0;
+        VK_LWIN = 0x5B, VK_RWIN = 0x5C, VK_LMENU = 0xA4, VK_RMENU = 0xA5, VK_OEM_3 = 0xC0, VK_DELETE = 0x2E;
 
     private static readonly IntPtr Swallow = new(1);
 
@@ -37,8 +37,13 @@ internal sealed class KeyboardHook : IDisposable
     public event Action? AltReleased;
     public event Action? Commit;
     public event Action? Cancel;
+    /// <summary>Delete pressed while the switcher is open: close the selected window.</summary>
+    public event Action? CloseSelected;
 
     public bool Enabled { get; set; } = true;
+
+    /// <summary>Whether Delete closes the selected window (otherwise it passes through).</summary>
+    public bool DeleteCloses { get; set; } = true;
 
     /// <summary>
     /// Stay-open mode: releasing Alt doesn't end the hook's session, so Tab, arrows, Enter and Esc
@@ -57,6 +62,18 @@ internal sealed class KeyboardHook : IDisposable
         if (_hook != IntPtr.Zero) return;
         _hook = Native.SetWindowsHookEx(Native.WH_KEYBOARD_LL, _proc, Native.GetModuleHandle(null), 0);
         if (_hook == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "SetWindowsHookEx failed");
+    }
+
+    /// <summary>
+    /// Removes and re-installs the hook. Windows silently drops low-level hooks in some situations
+    /// (e.g. a hook callback that once took too long, sleep/resume); re-installing is harmless.
+    /// </summary>
+    public void Reinstall()
+    {
+        if (_hook != IntPtr.Zero) Native.UnhookWindowsHookEx(_hook);
+        _hook = IntPtr.Zero;
+        _sessionActive = false;
+        Install();
     }
 
     /// <summary>Called by the controller when a session ends for any reason (click, Esc, Enter...).</summary>
@@ -130,6 +147,9 @@ internal sealed class KeyboardHook : IDisposable
                 return true;
             case VK_DOWN:
                 if (!isUp) Post(() => MoveRow?.Invoke(+1));
+                return true;
+            case VK_DELETE when DeleteCloses:
+                if (!isUp) Post(() => CloseSelected?.Invoke());
                 return true;
             case VK_OEM_3: // the key above Tab (` on US layouts)
                 if (!isUp) { int d = IsDown(VK_SHIFT) ? -1 : +1; Post(() => CycleStack?.Invoke(d)); }
