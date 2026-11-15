@@ -2,7 +2,7 @@
 
 An Alt+Tab switcher for Windows 11 that appears on **every monitor at once**. Windows' own switcher only ever shows on the main display.
 
-> Status: **early (v0.5)**. Works day to day; settings are a JSON file and there's no settings window yet.
+> Status: **early (v0.5)**. Works day to day. Settings can be changed in a settings window or in a JSON file.
 
 Three rules guide every feature:
 1. **Lowest resource use possible.** When idle it does no work (0 ms of CPU) and uses about 10–16 MB working set (about 40–50 MB private). The switcher appears about 110–130 ms after Alt+Tab. See [Resource use](#resource-use).
@@ -69,7 +69,7 @@ The switcher takes at most 75% of a monitor's width and 75% of its height. With 
 
 ## Settings
 
-Double-click the tray icon, or right-click it and choose **Settings…**, to open the settings window. Every setting below is there, and each change is saved and applied straight away. The window uses your `theme` setting (Windows' light or dark mode by default). It runs as its own short-lived process (`AltTabEverywhere.exe --settings`, which you can also pin as a shortcut), so the always-on switcher never holds its memory: closing the window frees all of it. Opening it takes about 1.5 seconds.
+Double-click the tray icon, or right-click it and choose **Settings…**, to open the settings window. Every setting below is there, in tabs (Shortcuts, When and where, Which windows, Finding windows, Closing windows, Appearance, System), and each change is saved and applied straight away. The window uses your `theme` setting (Windows' light or dark mode by default). It runs as its own short-lived process (`AltTabEverywhere.exe --settings`, which you can also pin as a shortcut), so the always-on switcher never holds its memory: closing the window frees all of it. Opening it takes about 1.5 seconds.
 
 Settings live in `%APPDATA%\AltTabEverywhere\settings.json`, created with defaults on first run. To edit the file by hand, choose **Edit settings file…** in the tray menu. Changes apply as soon as you save. If the file has a mistake, the switcher keeps your previous settings and writes the error to the log. Comments and trailing commas are allowed. The settings window and the tray toggles change one key at a time and keep every other key as you wrote it, but not comments.
 

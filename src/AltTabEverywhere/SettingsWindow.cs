@@ -11,7 +11,7 @@ namespace AltTabEverywhere;
 
 /// <summary>
 /// Every setting in settings.json, editable without touching the file. Built in code, created only
-/// when opened and dropped when closed (see <see cref="Open"/>), so it costs nothing while idle.
+/// in its own process when opened (see <see cref="Launch"/>), so it costs nothing while idle.
 /// Each change is written straight away, one key at a time, so keys edited by hand are kept; the
 /// file watcher then applies it like any other edit.
 /// </summary>
@@ -20,7 +20,8 @@ internal sealed class SettingsWindow : Window
     public const string WindowTitle = "AltTab Everywhere settings";
 
     private readonly Settings _s;
-    private readonly StackPanel _page = new() { Margin = new Thickness(24, 8, 24, 24) };
+    private readonly TabControl _tabs = new() { Margin = new Thickness(12, 12, 12, 0) };
+    private StackPanel _page = new(); // the tab Build() is filling
     private readonly StackPanel _shortcutRows = new();
     private readonly List<ShortcutRow> _shortcuts = new();
 
@@ -71,7 +72,7 @@ internal sealed class SettingsWindow : Window
 
         Title = WindowTitle;
         Width = 720;
-        Height = 760;
+        Height = 680;
         MinWidth = 520;
         MinHeight = 400;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -83,27 +84,44 @@ internal sealed class SettingsWindow : Window
         catch (Exception ex) { Log.Info($"settings icon: {ex.Message}"); }
 
         Build();
-        Content = new ScrollViewer { Content = _page, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        Content = Layout();
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };
     }
 
     // ---------------------------------------------------------------- page
 
-    private void Build()
+    /// <summary>The tabs, with a footer that stays in view whichever tab is open.</summary>
+    private FrameworkElement Layout()
     {
-        _page.Children.Add(new TextBlock
+        var note = new TextBlock
         {
             Text = "Changes are saved and applied straight away. Every option is also in settings.json.",
             Opacity = 0.75,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 8, 0, 4),
-        });
-        var openFile = new Button { Content = "Open settings.json", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) };
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 16, 0),
+        };
+        var openFile = new Button { Content = "Open settings.json", VerticalAlignment = VerticalAlignment.Center };
         openFile.Click += (_, _) => TrayIcon.OpenSettingsFile();
-        _page.Children.Add(openFile);
 
+        var footer = new Grid { Margin = new Thickness(24, 12, 24, 16) };
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(openFile, 1);
+        footer.Children.Add(note);
+        footer.Children.Add(openFile);
+
+        var root = new DockPanel();
+        DockPanel.SetDock(footer, Dock.Bottom);
+        root.Children.Add(footer);
+        root.Children.Add(_tabs); // the last child fills the rest
+        return root;
+    }
+
+    private void Build()
+    {
         Section("Shortcuts");
-        Note("Each shortcut opens the switcher. Options set to \"Default\" use the values further down.");
+        Note("Each shortcut opens the switcher. Options set to \"Default\" use the values on the other tabs.");
         _page.Children.Add(_shortcutRows);
         EditableKeys.Add("shortcuts");
         foreach (var shortcut in _s.Shortcuts) AddShortcutRow(shortcut);
@@ -115,7 +133,7 @@ internal sealed class SettingsWindow : Window
         };
         _page.Children.Add(add);
 
-        Section("When and where it appears");
+        Section("When and where");
         Choice("Show on", "Which monitors show the switcher.", "showOn", _s.ShowOn,
             (ShowOn.AllMonitors, "Every monitor"),
             (ShowOn.MonitorUnderCursor, "The monitor under the mouse"),
@@ -125,7 +143,7 @@ internal sealed class SettingsWindow : Window
         Number("Show delay (ms)", "Wait this long before showing the switcher, so quick taps switch without it appearing. 0–2000.",
             "showDelayMs", _s.ShowDelayMs, 0, 2000);
 
-        Section("Which windows are listed");
+        Section("Which windows");
         Choice("List windows from", "", "listWindowsFrom", _s.ListWindowsFrom,
             (ListWindowsFrom.AllMonitors, "Every monitor"),
             (ListWindowsFrom.ThisMonitor, "Only the monitor the switcher is on"));
@@ -150,7 +168,7 @@ internal sealed class SettingsWindow : Window
         Toggle("Show tile numbers", "Show 1–9 on the first nine tiles.", "showTileNumbers", _s.ShowTileNumbers);
         Toggle("Hover selects", "Moving the mouse over a tile selects it.", "hoverSelects", _s.HoverSelects);
 
-        Section("Closing windows from the switcher");
+        Section("Closing windows");
         Toggle("Delete key closes the selected window", "", "deleteKeyCloses", _s.DeleteKeyCloses);
         Toggle("Middle-click closes a window", "", "middleClickCloses", _s.MiddleClickCloses);
         Toggle("Show a close button on the tile under the mouse", "", "showCloseButton", _s.ShowCloseButton);
@@ -173,13 +191,18 @@ internal sealed class SettingsWindow : Window
 
     // ---------------------------------------------------------------- building blocks
 
-    private void Section(string title) => _page.Children.Add(new TextBlock
+    /// <summary>Starts a new tab; the rows added after this go on it. Each tab scrolls on its own.</summary>
+    private void Section(string title)
     {
-        Text = title,
-        FontSize = 20,
-        FontWeight = FontWeights.SemiBold,
-        Margin = new Thickness(0, 28, 0, 6),
-    });
+        _page = new StackPanel { Margin = new Thickness(12, 12, 20, 16) };
+        var tab = new TabItem
+        {
+            Header = title,
+            Content = new ScrollViewer { Content = _page, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+        };
+        AutomationName(tab, title);
+        _tabs.Items.Add(tab);
+    }
 
     private void Note(string text) => _page.Children.Add(new TextBlock
     {
