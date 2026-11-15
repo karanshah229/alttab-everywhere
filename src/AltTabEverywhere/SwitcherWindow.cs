@@ -22,14 +22,6 @@ internal sealed class SwitcherWindow : Window
 {
     private const double WindowPadding = TileLayout.WindowPadding;
 
-    private static readonly Brush WindowBackground = Frozen(new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x20)));
-    private static readonly Brush SelectedBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)));
-    private static readonly Brush SelectedBorder = Frozen(new SolidColorBrush(Color.FromRgb(0x60, 0xCD, 0xFF)));
-    private static readonly Brush ThumbBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x50, 0x00, 0x00, 0x00)));
-    private static readonly Brush BadgeBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)));
-    private static readonly Brush CloseHoverBackground = Frozen(new SolidColorBrush(Color.FromRgb(0xC4, 0x2B, 0x1C)));
-    private static readonly Brush SearchBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)));
-    private static readonly Brush DimText = Frozen(new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)));
 
     /// <summary>Height of the search bar including its gap below, in DIPs (only shown while searching).</summary>
     public const double SearchBarHeight = 36;
@@ -48,7 +40,7 @@ internal sealed class SwitcherWindow : Window
                     <Thumb>
                       <Thumb.Template>
                         <ControlTemplate TargetType="Thumb">
-                          <Border CornerRadius="4" Background="#66FFFFFF"/>
+                          <Border CornerRadius="4" Background="{THUMB}"/>
                         </ControlTemplate>
                       </Thumb.Template>
                     </Thumb>
@@ -67,6 +59,10 @@ internal sealed class SwitcherWindow : Window
     private readonly Border _searchBar;
     private readonly TextBlock _searchText;
     private readonly TextBlock _emptyText;
+    private readonly TextBlock _searchIcon;
+
+    /// <summary>The colours this window was last drawn with; tiles are built per session from it.</summary>
+    private Theme _theme = Theme.Current;
 
     public MonitorInfo Monitor { get; }
     public IntPtr Handle { get; }
@@ -151,7 +147,7 @@ internal sealed class SwitcherWindow : Window
         ShowActivated = false;
         SizeToContent = SizeToContent.WidthAndHeight;
         WindowStartupLocation = WindowStartupLocation.Manual;
-        Background = WindowBackground;
+        Background = _theme.Background;
         UseLayoutRounding = false; // tile widths must add up exactly for the fixed column count
 
         _scroll = new ScrollViewer
@@ -163,8 +159,7 @@ internal sealed class SwitcherWindow : Window
             // Keep the grid's position exact: the thumbnails are positioned from it.
             CanContentScroll = false,
         };
-        // Parsed per window: each overlay has its own UI thread, and a Style can't be shared across threads.
-        _scroll.Resources.Add(typeof(ScrollBar), (Style)System.Windows.Markup.XamlReader.Parse(ScrollBarStyleXaml));
+        _scroll.Resources.Add(typeof(ScrollBar), ScrollBarStyle(_theme));
         // Live previews are drawn by DWM on top of the window, so they must be moved (and
         // clipped) by hand whenever the grid scrolls.
         _scroll.ScrollChanged += (_, _) => UpdateThumbnails();
@@ -172,17 +167,17 @@ internal sealed class SwitcherWindow : Window
         // Search bar: only visible once something has been typed.
         _searchText = new TextBlock
         {
-            Foreground = Brushes.WhiteSmoke,
+            Foreground = _theme.Text,
             FontSize = 14,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        var searchIcon = new TextBlock
+        var searchIcon = _searchIcon = new TextBlock
         {
             Text = "", // Search glyph
             FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
             FontSize = 14,
-            Foreground = DimText,
+            Foreground = _theme.DimText,
             Margin = new Thickness(0, 0, 8, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -196,14 +191,14 @@ internal sealed class SwitcherWindow : Window
             Margin = new Thickness(5, 0, 5, 6),
             Padding = new Thickness(10, 0, 10, 0),
             CornerRadius = new CornerRadius(6),
-            Background = SearchBackground,
+            Background = _theme.SearchBackground,
             Visibility = Visibility.Collapsed,
             Child = searchRow,
         };
         _emptyText = new TextBlock
         {
             Text = "No windows match",
-            Foreground = DimText,
+            Foreground = _theme.DimText,
             FontSize = 13,
             Margin = new Thickness(10, 16, 10, 20),
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -221,7 +216,7 @@ internal sealed class SwitcherWindow : Window
 
         int round = Native.DWMWCP_ROUND;
         Native.DwmSetWindowAttribute(Handle, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
-        int dark = 1;
+        int dark = _theme.IsDark ? 1 : 0;
         Native.DwmSetWindowAttribute(Handle, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
 
         // Park the (still hidden) window on its monitor so WPF picks up that monitor's DPI.
@@ -239,6 +234,7 @@ internal sealed class SwitcherWindow : Window
         ClearThumbnails();
         _panel.Children.Clear();
         _tiles.Clear();
+        ApplyTheme(Theme.Current);
         _showThumbnails = settings.ShowThumbnails;
         _middleClickCloses = settings.MiddleClickCloses;
         _showCloseButton = settings.ShowCloseButton;
@@ -300,8 +296,8 @@ internal sealed class SwitcherWindow : Window
         for (int i = 0; i < _tiles.Count; i++)
         {
             bool selected = i == index;
-            _tiles[i].Root.Background = selected ? SelectedBackground : Brushes.Transparent;
-            _tiles[i].Root.BorderBrush = selected ? SelectedBorder : Brushes.Transparent;
+            _tiles[i].Root.Background = selected ? _theme.SelectedBackground : Brushes.Transparent;
+            _tiles[i].Root.BorderBrush = selected ? _theme.SelectedBorder : Brushes.Transparent;
         }
         // Scroll the selection into view; ScrollChanged then repositions the previews.
         if (index >= 0 && index < _tiles.Count) _tiles[index].Root.BringIntoView();
@@ -354,7 +350,7 @@ internal sealed class SwitcherWindow : Window
         var numberText = new TextBlock
         {
             Text = number ?? "",
-            Foreground = DimText,
+            Foreground = _theme.DimText,
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 6, 0),
@@ -373,7 +369,7 @@ internal sealed class SwitcherWindow : Window
 
         var title = new TextBlock
         {
-            Foreground = Brushes.WhiteSmoke,
+            Foreground = _theme.Text,
             FontSize = 12,
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
@@ -382,14 +378,14 @@ internal sealed class SwitcherWindow : Window
         // "×3" on a stack, "2/3" once the user has cycled within it. Hidden for single windows.
         var badgeText = new TextBlock
         {
-            Foreground = Brushes.WhiteSmoke,
+            Foreground = _theme.Text,
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
         };
         var badge = new Border
         {
-            Background = BadgeBackground,
+            Background = _theme.BadgeBackground,
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(6, 1, 6, 1),
             Margin = new Thickness(6, 0, 0, 0),
@@ -411,14 +407,15 @@ internal sealed class SwitcherWindow : Window
             Child = new TextBlock
             {
                 Text = "✕",
-                Foreground = Brushes.WhiteSmoke,
+                Foreground = _theme.Text,
                 FontSize = 11,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             },
         };
-        close.MouseEnter += (_, _) => close.Background = CloseHoverBackground;
-        close.MouseLeave += (_, _) => close.Background = Brushes.Transparent;
+        var closeGlyph = (TextBlock)close.Child;
+        close.MouseEnter += (_, _) => { close.Background = _theme.CloseHoverBackground; closeGlyph.Foreground = _theme.CloseHoverText; };
+        close.MouseLeave += (_, _) => { close.Background = Brushes.Transparent; closeGlyph.Foreground = _theme.Text; };
         close.MouseLeftButtonUp += (_, e) =>
         {
             e.Handled = true; // don't also switch to the window
@@ -452,7 +449,7 @@ internal sealed class SwitcherWindow : Window
         {
             Width = tileWidth,
             Height = thumbHeight,
-            Background = ThumbBackground,
+            Background = _theme.ThumbBackground,
             CornerRadius = new CornerRadius(4),
             Child = placeholder,
         };
@@ -597,11 +594,27 @@ internal sealed class SwitcherWindow : Window
         UpdateThumbnails();
     }
 
-    private static Brush Frozen(Brush brush)
+    /// <summary>
+    /// Recolours the parts of the window that outlive a session (tiles are rebuilt each session).
+    /// Does nothing unless the theme changed since this window was last drawn.
+    /// </summary>
+    private void ApplyTheme(Theme theme)
     {
-        brush.Freeze();
-        return brush;
+        if (ReferenceEquals(theme, _theme)) return;
+        _theme = theme;
+        Background = theme.Background;
+        _searchBar.Background = theme.SearchBackground;
+        _searchText.Foreground = theme.Text;
+        _searchIcon.Foreground = theme.DimText;
+        _emptyText.Foreground = theme.DimText;
+        _scroll.Resources[typeof(ScrollBar)] = ScrollBarStyle(theme);
+        int dark = theme.IsDark ? 1 : 0;
+        Native.DwmSetWindowAttribute(Handle, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
     }
+
+    // Parsed per window: each overlay has its own UI thread, and a Style can't be shared across threads.
+    private static Style ScrollBarStyle(Theme theme) =>
+        (Style)System.Windows.Markup.XamlReader.Parse(ScrollBarStyleXaml.Replace("{THUMB}", theme.ScrollThumb));
 
     private sealed class Tile(Border root, Border thumbHost, Image icon, TextBlock title, Image placeholder,
         Border badge, TextBlock badgeText)

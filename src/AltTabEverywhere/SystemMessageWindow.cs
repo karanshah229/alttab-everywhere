@@ -12,6 +12,8 @@ namespace AltTabEverywhere;
 internal sealed class SystemMessageWindow : IDisposable
 {
     private const int WM_DISPLAYCHANGE = 0x007E;
+    private const int WM_SETTINGCHANGE = 0x001A;
+    private const int WM_DWMCOLORIZATIONCOLORCHANGED = 0x0320;
     private const int WM_POWERBROADCAST = 0x0218;
     private const int WM_WTSSESSION_CHANGE = 0x02B1;
     private const int PBT_APMRESUMESUSPEND = 0x0007;
@@ -27,6 +29,8 @@ internal sealed class SystemMessageWindow : IDisposable
     /// <summary>The keyboard hook may have been dropped (resume, unlock, reconnect).</summary>
     public event Action<string>? HookMayBeLost;
     public event Action? DisplayChanged;
+    /// <summary>Windows' light/dark mode or accent colour changed.</summary>
+    public event Action? ColorsChanged;
     /// <summary>Explorer (re)started: shell interfaces and the tray icon need refreshing.</summary>
     public event Action? ExplorerRestarted;
 
@@ -57,6 +61,12 @@ internal sealed class SystemMessageWindow : IDisposable
                 break;
             case WM_DISPLAYCHANGE:
                 DisplayChanged?.Invoke();
+                break;
+            case WM_DWMCOLORIZATIONCOLORCHANGED:
+                ColorsChanged?.Invoke();
+                break;
+            case WM_SETTINGCHANGE when lParam != IntPtr.Zero && Marshal.PtrToStringUni(lParam) == "ImmersiveColorSet":
+                ColorsChanged?.Invoke(); // light/dark mode or accent changed
                 break;
             default:
                 if (msg == _taskbarCreated && _taskbarCreated != 0) ExplorerRestarted?.Invoke();

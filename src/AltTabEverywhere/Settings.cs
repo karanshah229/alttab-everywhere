@@ -173,6 +173,18 @@ internal sealed class Settings
 
     public double ThumbnailHeight { get; set; } = 140;
 
+    /// <summary>"system" follows Windows' app mode; "dark" or "light" fixes it.</summary>
+    public AppTheme Theme { get; set; } = AppTheme.System;
+
+    /// <summary>Selection colour: "system" (Windows' accent) or "#RRGGBB".</summary>
+    public string AccentColor { get; set; } = "system";
+
+    /// <summary>Optional "#RRGGBB" overriding the theme's background; empty uses the theme.</summary>
+    public string BackgroundColor { get; set; } = "";
+
+    /// <summary>Optional "#RRGGBB" overriding the theme's text colour; empty uses the theme.</summary>
+    public string TextColor { get; set; } = "";
+
     // ---- System ----
 
     /// <summary>Start automatically when you sign in to Windows (per-user, no admin rights).</summary>
@@ -194,6 +206,10 @@ internal sealed class Settings
         ExcludedTitles.RemoveAll(string.IsNullOrWhiteSpace);
         if (!Enum.IsDefined(SearchMode)) SearchMode = SearchMode.Fuzzy;
         if (!Enum.IsDefined(NumberKeys)) NumberKeys = NumberKeys.Switch;
+        if (!Enum.IsDefined(Theme)) Theme = AppTheme.System;
+        AccentColor ??= "system";
+        BackgroundColor ??= "";
+        TextColor ??= "";
         Shortcuts ??= new List<Shortcut>();
         Shortcuts.RemoveAll(s => s is null);
         return this;

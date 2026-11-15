@@ -124,6 +124,10 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | `showThumbnails` | `true` | Live window previews. `false` shows icons only |
 | `tileWidth` | `240` | Tile width, 80–600. Tiles shrink slightly when there are many windows, then the grid scrolls |
 | `thumbnailHeight` | `140` | Preview height, 50–400 |
+| `theme` | `"system"` | `"system"` follows Windows' light or dark app mode, and changes with it. `"dark"` or `"light"` fixes it |
+| `accentColor` | `"system"` | Selection border. `"system"` uses Windows' accent colour, in the shade Windows uses on that background. Or a colour such as `"#FF8800"` |
+| `backgroundColor` | `""` | A colour such as `"#202020"` replaces the theme's background. Text turns light or dark to suit it |
+| `textColor` | `""` | A colour such as `"#FFFFFF"` replaces the theme's text colour. Dimmed text and highlights are worked out from it |
 
 **System**
 
@@ -204,7 +208,7 @@ dotnet run -c Release --project src/AltTabEverywhere -- --measure
 
 ## Tests
 
-Run the unit tests (grid movement and paging, tile layout, grouping, search, shortcut parsing, settings parsing) with:
+Run the unit tests (grid movement and paging, tile layout, grouping, search, shortcut parsing, settings parsing, theme colours, and a check that every Windows API call passing text uses Unicode) with:
 
 ```bash
 dotnet test

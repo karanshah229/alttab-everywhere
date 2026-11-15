@@ -83,6 +83,7 @@ internal static class Program
                 systemEvents = new SystemMessageWindow();
                 systemEvents.HookMayBeLost += controller.ReinstallHook;
                 systemEvents.DisplayChanged += controller.OnDisplayChanged;
+                systemEvents.ColorsChanged += controller.OnSystemColorsChanged;
                 systemEvents.ExplorerRestarted += () => Log.Info("Explorer restarted");
 
                 Log.Info("started");

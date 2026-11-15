@@ -115,6 +115,14 @@ internal sealed partial class SwitcherController : IDisposable
         _hook.TypeToSearch = settings.TypeToSearch;
         _hook.NumberKeys = settings.NumberKeys != NumberKeys.Off;
         _showTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, settings.ShowDelayMs));
+        Theme.Rebuild(settings);
+    }
+
+    /// <summary>Windows' light/dark mode or accent colour changed: the next session picks it up.</summary>
+    public void OnSystemColorsChanged()
+    {
+        var theme = Theme.Rebuild(_store.Current);
+        Log.Info($"theme: {(theme.IsDark ? "dark" : "light")}, accent {theme.AccentColor}");
     }
 
     /// <summary>The settings for a session opened by shortcut <paramref name="index"/>.</summary>
