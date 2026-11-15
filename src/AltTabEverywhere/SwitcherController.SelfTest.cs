@@ -23,10 +23,11 @@ internal sealed partial class SwitcherController
     public async void RunSelfTest(Action<bool> done)
     {
         int checks = 0, failures = 0;
+        string layoutTag = ""; // which layout a failure happened in
         void Fail(string message)
         {
             failures++;
-            if (failures <= 60) Log.Info("selftest FAIL: " + message);
+            if (failures <= 60) Log.Info("selftest FAIL: " + layoutTag + message);
         }
 
         try
@@ -39,8 +40,13 @@ internal sealed partial class SwitcherController
                 return;
             }
 
-            foreach (int count in SelfTestCounts)
+            // Every tile count in every layout: navigation is checked against where tiles really are,
+            // so the same checks hold for a grid of previews, of icons, or a one-column list.
+            foreach (var (layout, count) in Enum.GetValues<SwitcherLayout>().SelectMany(l => SelfTestCounts.Select(c => (l, c))))
             {
+                _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+                _settingsOverride.Layout = layout;
+                layoutTag = $"[{layout}] ";
                 // Repeat real windows to reach the target count; geometry is all that matters here.
                 // Every third tile is a two-window stack so badges and stack cycling are covered too.
                 _items = Enumerable.Range(0, count).Select(i => i % 3 == 2
@@ -58,7 +64,7 @@ internal sealed partial class SwitcherController
                 var shown = _plan.Select(p => p.Host).ToList();
                 string grids = string.Join(", ", shown.Select(o => o.Query(w =>
                     $"{o.Monitor.DeviceName}={ColumnsOf(w.TileRects)} cols{(w.IsScrolling ? " scrolling" : "")}")));
-                Log.Info($"selftest: {count} tiles; {grids}; navigation uses {_focusOverlay?.Monitor.DeviceName}");
+                Log.Info($"selftest: {layoutTag}{count} tiles; {grids}; navigation uses {_focusOverlay?.Monitor.DeviceName}");
 
                 foreach (var overlay in shown)
                 {
@@ -66,6 +72,22 @@ internal sealed partial class SwitcherController
                     if (!overlay.Query(w => w.WithinSizeCap()))
                         Fail($"{count} tiles, {overlay.Monitor.DeviceName}: switcher larger than " +
                              $"{TileLayout.MaxWidthFraction:P0} x {TileLayout.MaxHeightFraction:P0} ({overlay.Query(w => w.DescribeForLog())})");
+
+                    // The list is one column; iconsOnly shows the selected window's title underneath.
+                    if (layout == SwitcherLayout.List)
+                    {
+                        checks++;
+                        int columns = overlay.Query(w => { w.UpdateLayout(); return ColumnsOf(w.TileRects); });
+                        if (columns != 1) Fail($"{count} tiles, {overlay.Monitor.DeviceName}: list has {columns} columns");
+                    }
+                    if (layout == SwitcherLayout.IconsOnly)
+                    {
+                        Select(count - 1);
+                        checks++;
+                        string caption = overlay.Query(w => w.CaptionText);
+                        if (caption != _items[count - 1].Shown.Title) Fail($"{count} tiles, {overlay.Monitor.DeviceName}: caption \"{caption}\"");
+                        Select(0);
+                    }
                 }
 
                 // Stacks: opening one shows a Back tile and its windows on every monitor, with the
@@ -186,6 +208,7 @@ internal sealed partial class SwitcherController
                 }
                 End();
             }
+            layoutTag = "";
 
             // listWindowsFrom = thisMonitor: each monitor's switcher lists only its own windows.
             _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));

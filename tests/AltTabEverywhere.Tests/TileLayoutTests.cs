@@ -90,4 +90,52 @@ public class TileLayoutTests
         Assert.True(rows == 1 || rows * TileLayout.OuterHeight(Defaults, scale) <= Laptop.H + 1e-6);
         Assert.True((rows + 1) * TileLayout.OuterHeight(Defaults, scale) > Laptop.H);
     }
+
+    private static Settings With(SwitcherLayout layout) => new() { Layout = layout };
+
+    [Theory]
+    [MemberData(nameof(Counts))]
+    public void The_list_is_one_column_that_never_shrinks(int count)
+    {
+        var list = With(SwitcherLayout.List);
+        Assert.Equal(1, TileLayout.MaxColumns(count, External.W, External.H, list));
+        Assert.Equal(1.0, TileLayout.FitScale(count, External.W, External.H, list, 1));
+        Assert.Equal(list.ListWidth + TileLayout.ListChromeWidth, TileLayout.OuterWidth(list, 0.5)); // scale ignored
+        Assert.Equal(TileLayout.ListChromeHeight, TileLayout.OuterHeight(list, 1));
+    }
+
+    [Theory]
+    [InlineData((int)SwitcherLayout.Icons)]
+    [InlineData((int)SwitcherLayout.IconsOnly)]
+    public void Icon_layouts_fit_more_tiles_per_row_than_previews(int layout)
+    {
+        var icons = With((SwitcherLayout)layout);
+        Assert.True(TileLayout.MaxColumns(60, External.W, External.H, icons) > TileLayout.MaxColumns(60, External.W, External.H, Defaults));
+        Assert.True(TileLayout.OuterHeight(icons, 1) < TileLayout.OuterHeight(Defaults, 1));
+    }
+
+    [Fact]
+    public void Icons_only_has_no_title_row_and_reserves_room_for_its_caption()
+    {
+        var iconsOnly = With(SwitcherLayout.IconsOnly);
+        Assert.Equal(iconsOnly.IconSize * 1.5 + TileLayout.ChromeWidth, TileLayout.OuterHeight(iconsOnly, 1));
+        var (_, withCaption) = TileLayout.Available(1872, 1200, iconsOnly);
+        var (_, without) = TileLayout.Available(1872, 1200, Defaults);
+        Assert.Equal(without - TileLayout.CaptionHeight, withCaption);
+    }
+
+    [Theory]
+    [InlineData((int)SwitcherLayout.Icons)]
+    [InlineData((int)SwitcherLayout.IconsOnly)]
+    [InlineData((int)SwitcherLayout.List)]
+    public void Every_layout_stays_within_the_width_cap(int layout)
+    {
+        var s = With((SwitcherLayout)layout);
+        foreach (int count in new[] { 1, 7, 60 })
+        {
+            int columns = TileLayout.MaxColumns(count, Laptop.W, Laptop.H, s);
+            double scale = TileLayout.FitScale(count, Laptop.W, Laptop.H, s, columns);
+            Assert.True(columns * TileLayout.OuterWidth(s, scale) <= Laptop.W, $"{(SwitcherLayout)layout}: {count} tiles too wide");
+        }
+    }
 }

@@ -30,6 +30,8 @@ internal sealed class SettingsWindow : Window
         { (VirtualDesktops.Current, "Current desktop"), (VirtualDesktops.All, "All desktops") };
     private static readonly (GroupWindows, string)[] GroupOptions =
         { (GroupWindows.Separate, "One tile per window"), (GroupWindows.Stacked, "One tile per app") };
+    private static readonly (SwitcherLayout, string)[] LayoutOptions =
+        { (SwitcherLayout.Thumbnails, "Live previews"), (SwitcherLayout.Icons, "Large icons"), (SwitcherLayout.List, "Compact list"), (SwitcherLayout.IconsOnly, "Icons only") };
 
     // Windows' accent palette, then neutrals (useful for backgrounds and text).
     private static readonly string[] Palette =
@@ -197,7 +199,7 @@ internal sealed class SettingsWindow : Window
     private void Build()
     {
         Section("Shortcuts");
-        Note("Each shortcut opens the switcher. Its options default to the Behaviour tab.");
+        Note("Each shortcut opens the switcher. Its options default to the Behaviour and Appearance tabs.");
         _shortcutRows = new StackPanel();
         _page.Children.Add(_shortcutRows);
         Track("shortcuts");
@@ -243,6 +245,7 @@ internal sealed class SettingsWindow : Window
         Toggle("Close button on hover", "", "showCloseButton", _s.ShowCloseButton);
 
         Section("Appearance");
+        Choice("Layout", "Only live previews show window contents; the others use less memory.", "layout", _s.Layout, LayoutOptions);
         Choice("Theme", "", "theme", _s.Theme,
             (AppTheme.System, "Same as Windows"),
             (AppTheme.Dark, "Dark"),
@@ -250,9 +253,11 @@ internal sealed class SettingsWindow : Window
         Colour("Accent colour", "Selection border. Empty: Windows' accent.", "accentColor", _s.AccentColor, "system", t => t.AccentColor);
         Colour("Background colour", "Empty: theme default.", "backgroundColor", _s.BackgroundColor, "", t => ((SolidColorBrush)t.Background).Color);
         Colour("Text colour", "Empty: theme default.", "textColor", _s.TextColor, "", t => ((SolidColorBrush)t.Text).Color);
-        Toggle("Live previews", "Off: icons only, less memory.", "showThumbnails", _s.ShowThumbnails);
-        Number("Tile width", "80–600.", "tileWidth", _s.TileWidth, 80, 600);
-        Number("Preview height", "50–400.", "thumbnailHeight", _s.ThumbnailHeight, 50, 400);
+        Toggle("Live previews in tiles", "Live previews layout. Off: app icons, less memory.", "showThumbnails", _s.ShowThumbnails);
+        Number("Tile width", "Live previews layout. 80–600.", "tileWidth", _s.TileWidth, 80, 600);
+        Number("Preview height", "Live previews layout. 50–400.", "thumbnailHeight", _s.ThumbnailHeight, 50, 400);
+        Number("Icon size", "Large icons and icons only. 16–128.", "iconSize", _s.IconSize, 16, 128);
+        Number("List width", "Compact list. 240–1200.", "listWidth", _s.ListWidth, 240, 1200);
 
         Section("System");
         Toggle("Start with Windows", "No admin rights needed.", "startWithWindows", _s.StartWithWindows);
@@ -620,10 +625,11 @@ internal sealed class SettingsWindow : Window
             overrides.Children.Add(Override("Virtual desktops", shortcut.VirtualDesktops, v => Shortcut.VirtualDesktops = v, s => s.VirtualDesktops, DesktopOptions));
             overrides.Children.Add(Override("Group windows", shortcut.GroupWindows, v => Shortcut.GroupWindows = v, s => s.GroupWindows, GroupOptions));
             overrides.Children.Add(StayOpenOverride());
+            overrides.Children.Add(Override("Layout", shortcut.Layout, v => Shortcut.Layout = v, s => s.Layout, LayoutOptions));
             RefreshDefaults(defaults);
 
             bool anyOverride = shortcut.ShowOn != null || shortcut.ListWindowsFrom != null || shortcut.VirtualDesktops != null
-                || shortcut.GroupWindows != null || shortcut.StayOpenAfterAltRelease != null;
+                || shortcut.GroupWindows != null || shortcut.StayOpenAfterAltRelease != null || shortcut.Layout != null;
             overrides.Visibility = anyOverride ? Visibility.Visible : Visibility.Collapsed;
 
             // A flat text toggle rather than an Expander, which would draw a second card inside this one.

@@ -59,6 +59,7 @@ internal sealed class SwitcherWindow : Window
     private readonly Border _searchBar;
     private readonly TextBlock _searchText;
     private readonly TextBlock _emptyText;
+    private readonly TextBlock _caption; // iconsOnly: the selected window's title, under the grid
     private readonly TextBlock _searchIcon;
 
     /// <summary>The colours this window was last drawn with; tiles are built per session from it.</summary>
@@ -69,6 +70,7 @@ internal sealed class SwitcherWindow : Window
 
     private int _columns = 1;
     private bool _showThumbnails = true;
+    private SwitcherLayout _layout;
 
     /// <summary>Tiles per row in the current session (the same on every monitor).</summary>
     public int ColumnCount => _columns;
@@ -76,19 +78,19 @@ internal sealed class SwitcherWindow : Window
     /// <summary>The most columns this monitor can fit for <paramref name="count"/> tiles.</summary>
     public int MaxColumns(int count, Settings settings)
     {
-        var (width, height) = AvailableSpace();
+        var (width, height) = AvailableSpace(settings);
         return TileLayout.MaxColumns(count, width, height, settings);
     }
 
     /// <summary>Whole rows visible at once for this grid (Page Up / Page Down).</summary>
     public int RowsPerPage(int count, Settings settings, int columns)
     {
-        var (width, height) = AvailableSpace();
+        var (width, height) = AvailableSpace(settings);
         return TileLayout.RowsPerPage(count, width, height, settings, columns);
     }
 
-    private (double Width, double Height) AvailableSpace() =>
-        TileLayout.Available(Monitor.WorkArea.Width / Monitor.Scale, Monitor.WorkArea.Height / Monitor.Scale);
+    private (double Width, double Height) AvailableSpace(Settings settings) =>
+        TileLayout.Available(Monitor.WorkArea.Width / Monitor.Scale, Monitor.WorkArea.Height / Monitor.Scale, settings);
 
     /// <summary>
     /// Tile bounds in DIPs relative to the tile grid, in list order (used by --selftest).
@@ -206,7 +208,19 @@ internal sealed class SwitcherWindow : Window
             HorizontalAlignment = HorizontalAlignment.Center,
             Visibility = Visibility.Collapsed,
         };
+        _caption = new TextBlock
+        {
+            Foreground = _theme.Text,
+            FontSize = 13,
+            Height = TileLayout.CaptionHeight,
+            Padding = new Thickness(5, 7, 5, 0),
+            TextAlignment = TextAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Visibility = Visibility.Collapsed,
+        };
         var layout = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(_caption, Dock.Bottom);
+        layout.Children.Add(_caption);
         DockPanel.SetDock(_searchBar, Dock.Top);
         DockPanel.SetDock(_emptyText, Dock.Top);
         layout.Children.Add(_searchBar);
@@ -237,7 +251,8 @@ internal sealed class SwitcherWindow : Window
         _panel.Children.Clear();
         _tiles.Clear();
         ApplyTheme(Theme.Current);
-        _showThumbnails = settings.ShowThumbnails;
+        // Only the thumbnails layout has room for live previews; the others never register any.
+        _showThumbnails = settings.ShowThumbnails && settings.Layout == SwitcherLayout.Thumbnails;
         _middleClickCloses = settings.MiddleClickCloses;
         _showCloseButton = settings.ShowCloseButton;
         _hoverSelects = settings.HoverSelects;
@@ -249,15 +264,20 @@ internal sealed class SwitcherWindow : Window
         _searchText.Text = query;
         _emptyText.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        var (availWidth, availHeight) = AvailableSpace();
+        var (availWidth, availHeight) = AvailableSpace(settings);
         if (searching) availHeight -= SearchBarHeight; // stay within the size cap with the search bar showing
         double scale = TileLayout.FitScale(items.Count, availWidth, availHeight, settings, columns);
-        double tileWidth = settings.TileWidth * scale;
-        double thumbHeight = settings.ThumbnailHeight * scale;
+        var geometry = TileLayout.Geometry(settings);
+        double contentScale = geometry.Scales ? scale : 1;
+        double contentWidth = geometry.ContentWidth * contentScale;
+        double contentHeight = geometry.ContentHeight * contentScale;
+        _layout = settings.Layout;
+        _caption.Visibility = _layout == SwitcherLayout.IconsOnly && items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         // Exactly `columns` tiles per row. Layout rounding is off, so tile widths add up exactly;
         // the extra pixel only absorbs floating-point error.
         _panel.Width = columns * TileLayout.OuterWidth(settings, scale) + 1;
         _searchBar.Width = _panel.Width - 10; // a long query is trimmed, never widens the switcher
+        _caption.Width = _searchBar.Width;
         _columns = columns;
         // Cap the visible height; anything taller scrolls inside the switcher.
         _scroll.MaxHeight = availHeight;
@@ -266,7 +286,8 @@ internal sealed class SwitcherWindow : Window
         for (int i = 0; i < items.Count; i++)
         {
             int number = showNumbers ? SwitcherItem.NumberOf(items, i) : 0;
-            var tile = CreateTile(i, tileWidth, thumbHeight, number > 0 ? number.ToString() : null, items[i].IsBack);
+            var tile = CreateTile(i, _layout, contentWidth, contentHeight, settings.IconSize * contentScale,
+                number > 0 ? number.ToString() : null, items[i].IsBack);
             Bind(tile, items[i]);
             _tiles.Add(tile);
             _panel.Children.Add(tile.Root);
@@ -293,7 +314,13 @@ internal sealed class SwitcherWindow : Window
         }
         // Scroll the selection into view; ScrollChanged then repositions the previews.
         if (index >= 0 && index < _tiles.Count) _tiles[index].Root.BringIntoView();
+        // iconsOnly: the tiles have no titles, so the selected one's shows underneath.
+        if (_layout == SwitcherLayout.IconsOnly)
+            _caption.Text = index >= 0 && index < _tiles.Count ? _tiles[index].Title.Text : "";
     }
+
+    /// <summary>The caption's text (iconsOnly; used by --selftest).</summary>
+    public string CaptionText => _caption.Visibility == Visibility.Visible ? _caption.Text : "";
 
     /// <summary>
     /// Cloaked = fully laid out and rendered, but not shown by DWM. The switcher is built cloaked
@@ -335,11 +362,18 @@ internal sealed class SwitcherWindow : Window
         base.OnClosed(e);
     }
 
-    /// <summary>Builds an empty tile; <see cref="Bind"/> fills in the window it shows.</summary>
+    /// <summary>Builds an empty tile for the session's layout; <see cref="Bind"/> fills in the window it shows.</summary>
+    /// <param name="contentWidth">Preview, icon box or list row width, already scaled.</param>
+    /// <param name="contentHeight">Preview or icon box height, already scaled (unused by the list).</param>
+    /// <param name="iconSize">The large icon's size in the icons and iconsOnly layouts, already scaled.</param>
     /// <param name="number">"1".."9" for the number keys, or null.</param>
-    /// <param name="isBack">An open stack's Back tile: an arrow instead of a preview, and no close button.</param>
-    private Tile CreateTile(int index, double tileWidth, double thumbHeight, string? number, bool isBack)
+    /// <param name="isBack">An open stack's Back tile: an arrow instead of a window, and no close button.</param>
+    private Tile CreateTile(int index, SwitcherLayout layout, double contentWidth, double contentHeight, double iconSize, string? number, bool isBack)
     {
+        bool list = layout == SwitcherLayout.List;
+        bool iconsOnly = layout == SwitcherLayout.IconsOnly;
+        bool largeIcon = layout is SwitcherLayout.Icons or SwitcherLayout.IconsOnly;
+
         var numberText = new TextBlock
         {
             Text = number ?? "",
@@ -351,12 +385,14 @@ internal sealed class SwitcherWindow : Window
             Visibility = number is null ? Visibility.Collapsed : Visibility.Visible,
         };
 
+        // The small icon in the title row (thumbnails and list). The large-icon layouts show it big instead.
         var icon = new Image
         {
             Width = 16,
             Height = 16,
             Margin = new Thickness(0, 0, 6, 0),
             VerticalAlignment = VerticalAlignment.Center,
+            Visibility = largeIcon || isBack ? Visibility.Collapsed : Visibility.Visible,
         };
         RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality);
 
@@ -392,7 +428,7 @@ internal sealed class SwitcherWindow : Window
             TileBadgeClicked?.Invoke(index);
         };
 
-        // × to close the window; shown only while the mouse is over the tile.
+        // × to close the window; shown only while the mouse is over the tile (not in iconsOnly: no room).
         var close = new Border
         {
             Width = 20,
@@ -421,24 +457,23 @@ internal sealed class SwitcherWindow : Window
             TileCloseRequested?.Invoke(index);
         };
 
-        var header = new DockPanel { Height = 24, Margin = new Thickness(0, 0, 0, 6) };
-        DockPanel.SetDock(numberText, Dock.Left);
-        DockPanel.SetDock(icon, Dock.Left);
-        DockPanel.SetDock(close, Dock.Right);
-        DockPanel.SetDock(badge, Dock.Right);
-        header.Children.Add(numberText);
-        header.Children.Add(icon);
-        header.Children.Add(close);
-        header.Children.Add(badge);
-        header.Children.Add(title);
+        TextBlock BackArrow(double size) => new()
+        {
+            Text = "", // back arrow
+            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+            FontSize = size,
+            Foreground = _theme.DimText,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
 
-        // Shown when there's no live thumbnail (minimized windows, thumbnails off).
-        double placeholderSize = Math.Min(48, thumbHeight * 0.5);
+        // Shown when there's no live thumbnail (minimized windows, thumbnails off), or as the large icon.
+        double placeholderSize = largeIcon ? iconSize : Math.Min(48, contentHeight * 0.5);
         var placeholder = new Image
         {
             Width = placeholderSize,
             Height = placeholderSize,
-            Opacity = 0.7,
+            Opacity = largeIcon ? 1.0 : 0.7,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -446,38 +481,70 @@ internal sealed class SwitcherWindow : Window
 
         var thumbHost = new Border
         {
-            Width = tileWidth,
-            Height = thumbHeight,
-            Background = _theme.ThumbBackground,
+            Width = contentWidth,
+            Height = list ? 0 : contentHeight,
+            Background = largeIcon ? Brushes.Transparent : _theme.ThumbBackground,
             CornerRadius = new CornerRadius(4),
-            Child = isBack
-                ? new TextBlock
-                {
-                    Text = "\uE72B", // back arrow
-                    FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
-                    FontSize = Math.Min(40, thumbHeight * 0.4),
-                    Foreground = _theme.DimText,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                }
-                : placeholder,
         };
 
-        // Fixed width: without it a long title widens its tile and the columns stop lining up.
-        var stack = new StackPanel { Width = tileWidth };
-        stack.Children.Add(header);
-        stack.Children.Add(thumbHost);
+        FrameworkElement body;
+        if (iconsOnly)
+        {
+            // The icon, with the number in the top-left corner and the stack badge bottom-right.
+            var cell = new Grid();
+            cell.Children.Add(isBack ? BackArrow(iconSize * 0.7) : placeholder);
+            numberText.HorizontalAlignment = HorizontalAlignment.Left;
+            numberText.VerticalAlignment = VerticalAlignment.Top;
+            numberText.Margin = new Thickness(0);
+            badge.HorizontalAlignment = HorizontalAlignment.Right;
+            badge.VerticalAlignment = VerticalAlignment.Bottom;
+            badge.Margin = new Thickness(0);
+            cell.Children.Add(numberText);
+            cell.Children.Add(badge);
+            thumbHost.Child = cell;
+            body = thumbHost;
+        }
+        else
+        {
+            var header = new DockPanel { Height = TileLayout.TitleRowHeight, Margin = new Thickness(0, 0, 0, list ? 0 : 6) };
+            DockPanel.SetDock(numberText, Dock.Left);
+            header.Children.Add(numberText);
+            if (isBack && list)
+            {
+                var arrow = BackArrow(14);
+                arrow.Margin = new Thickness(0, 0, 8, 0);
+                DockPanel.SetDock(arrow, Dock.Left);
+                header.Children.Add(arrow);
+            }
+            DockPanel.SetDock(icon, Dock.Left);
+            DockPanel.SetDock(close, Dock.Right);
+            DockPanel.SetDock(badge, Dock.Right);
+            header.Children.Add(icon);
+            header.Children.Add(close);
+            header.Children.Add(badge);
+            header.Children.Add(title);
+
+            // Fixed width: without it a long title widens its tile and the columns stop lining up.
+            var stack = new StackPanel { Width = contentWidth };
+            stack.Children.Add(header);
+            if (!list)
+            {
+                thumbHost.Child = isBack ? BackArrow(Math.Min(40, contentHeight * 0.4)) : placeholder;
+                stack.Children.Add(thumbHost);
+            }
+            body = stack;
+        }
 
         var root = new Border
         {
-            Margin = new Thickness(5),
-            Padding = new Thickness(6),
+            Margin = list ? new Thickness(5, 1, 5, 1) : new Thickness(5),
+            Padding = list ? new Thickness(8, 3, 8, 3) : new Thickness(6),
             BorderThickness = new Thickness(2),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(list ? 6 : 8),
             Background = Brushes.Transparent,
             BorderBrush = Brushes.Transparent,
             Cursor = Cursors.Hand,
-            Child = stack,
+            Child = body,
         };
         root.MouseLeftButtonUp += (_, e) =>
         {
@@ -500,7 +567,7 @@ internal sealed class SwitcherWindow : Window
             _lastCursor = cursor;
             TileHovered?.Invoke(index);
         };
-        root.MouseEnter += (_, _) => { if (_showCloseButton && !isBack) close.Visibility = Visibility.Visible; };
+        root.MouseEnter += (_, _) => { if (_showCloseButton && !isBack && !iconsOnly) close.Visibility = Visibility.Visible; };
         root.MouseLeave += (_, _) => close.Visibility = Visibility.Collapsed;
 
         return new Tile(root, thumbHost, icon, title, placeholder, badge, badgeText);
@@ -623,6 +690,7 @@ internal sealed class SwitcherWindow : Window
         _searchText.Foreground = theme.Text;
         _searchIcon.Foreground = theme.DimText;
         _emptyText.Foreground = theme.DimText;
+        _caption.Foreground = theme.Text;
         _scroll.Resources[typeof(ScrollBar)] = ScrollBarStyle(theme);
         int dark = theme.IsDark ? 1 : 0;
         Native.DwmSetWindowAttribute(Handle, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));

@@ -85,7 +85,7 @@ Each entry has `keys` and, optionally, any of these. Anything left out uses the 
 |---|---|
 | `keys` | Modifiers (`Alt`, `Ctrl`, `Shift`, `Win`) and one key: `Tab`, `Space`, `` ` `` (the key above Tab), `A`–`Z`, `0`–`9`, `F1`–`F24`. At least one of Alt, Ctrl or Win. Examples: `"Alt+Tab"`, `"Win+Tab"`, `"Ctrl+Alt+Tab"`, ``"Alt+`"`` |
 | `windows` | `"all"` (default) or `"currentApp"`: only the windows of the app that had focus, one tile each, like Cmd+` on macOS or Alt+` on GNOME |
-| `showOn`, `listWindowsFrom`, `virtualDesktops`, `groupWindows`, `stayOpenAfterAltRelease` | Override that setting for sessions this shortcut opens |
+| `showOn`, `listWindowsFrom`, `virtualDesktops`, `groupWindows`, `stayOpenAfterAltRelease`, `layout` | Override that setting for sessions this shortcut opens |
 
 Shift reverses direction, unless Shift is part of the shortcut. A shortcut that Windows also uses (`Win+Tab` for Task View, `Ctrl+Alt+Tab` for its sticky switcher) is taken over while the app runs. Invalid or repeated entries are skipped and named in the log; if none is valid, Alt+Tab is used.
 
@@ -130,9 +130,12 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `showThumbnails` | `true` | Live window previews. `false` shows icons only |
-| `tileWidth` | `240` | Tile width, 80–600. Tiles shrink slightly when there are many windows, then the grid scrolls |
+| `layout` | `"thumbnails"` | How tiles look. `"thumbnails"`: a title and a live preview. `"icons"`: a title and a large app icon. `"list"`: one compact row per window (icon and full title) in a single column that scrolls. `"iconsOnly"`: small square icon tiles, with the selected window's title shown under the grid. Only `"thumbnails"` shows live previews, so the other three use less memory per open. Each shortcut can use its own layout |
+| `showThumbnails` | `true` | In the `"thumbnails"` layout: live window previews. `false` shows the app icon instead |
+| `tileWidth` | `240` | In the `"thumbnails"` layout: tile width, 80–600. Tiles shrink slightly when there are many windows, then the grid scrolls |
 | `thumbnailHeight` | `140` | Preview height, 50–400 |
+| `iconSize` | `48` | App icon size in the `"icons"` and `"iconsOnly"` layouts, 16–128. Shrinks with the tiles when there are many windows |
+| `listWidth` | `480` | Row width of the `"list"` layout, 240–1200. Rows never shrink; a long list scrolls |
 | `theme` | `"system"` | `"system"` follows Windows' light or dark app mode, and changes with it. `"dark"` or `"light"` fixes it |
 | `accentColor` | `"system"` | Selection border. `"system"` uses Windows' accent colour, in the shade Windows uses on that background. Or a colour such as `"#FF8800"` |
 | `backgroundColor` | `""` | A colour such as `"#202020"` replaces the theme's background. Text turns light or dark to suit it |
@@ -223,7 +226,7 @@ Run the unit tests (grid movement and paging, tile layout, grouping, search, sho
 dotnet test
 ```
 
-To test the real switcher, run `--selftest`. It opens the switcher on every monitor with 1 to 47 tiles, some of them app stacks, and checks:
+To test the real switcher, run `--selftest`. It opens the switcher on every monitor with 1 to 47 tiles, some of them app stacks, in each of the four layouts, and checks:
 - for every tile and every arrow, Home, End, Page Up and Page Down key, where the selection lands against where the tiles actually are on each screen;
 - that the selection is always scrolled into view;
 - that the switcher stays within the 75% × 75% cap;

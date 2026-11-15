@@ -35,8 +35,20 @@ internal enum GroupWindows
 {
     /// <summary>One tile per window.</summary>
     Separate,
-    /// <summary>One tile per app; Alt+` cycles through that app's windows.</summary>
+    /// <summary>One tile per app; open a stack to pick one of its windows.</summary>
     Stacked,
+}
+
+internal enum SwitcherLayout
+{
+    /// <summary>Tiles with a title and a live preview (the default).</summary>
+    Thumbnails,
+    /// <summary>Tiles with a title and a large app icon; no previews.</summary>
+    Icons,
+    /// <summary>One compact row per window (icon and title), in a single column.</summary>
+    List,
+    /// <summary>Small square icon tiles; the selected window's title shows underneath.</summary>
+    IconsOnly,
 }
 
 internal enum SearchMode
@@ -90,6 +102,9 @@ internal sealed class Shortcut
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? StayOpenAfterAltRelease { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SwitcherLayout? Layout { get; set; }
 }
 
 /// <summary>
@@ -171,6 +186,15 @@ internal sealed class Settings
 
     // ---- Appearance ----
 
+    /// <summary>How tiles look: live previews, large icons, a compact list, or icons only.</summary>
+    public SwitcherLayout Layout { get; set; } = SwitcherLayout.Thumbnails;
+
+    /// <summary>App icon size in the "icons" and "iconsOnly" layouts, in device-independent pixels.</summary>
+    public double IconSize { get; set; } = 48;
+
+    /// <summary>Row width of the "list" layout, in device-independent pixels.</summary>
+    public double ListWidth { get; set; } = 480;
+
     /// <summary>Live DWM thumbnails. When false, tiles show the app icon only.</summary>
     public bool ShowThumbnails { get; set; } = true;
 
@@ -203,6 +227,9 @@ internal sealed class Settings
         StackOpenDelayMs = Math.Clamp(StackOpenDelayMs, 0, 5000);
         TileWidth = Math.Clamp(TileWidth, 80, 600);
         ThumbnailHeight = Math.Clamp(ThumbnailHeight, 50, 400);
+        IconSize = Math.Clamp(IconSize, 16, 128);
+        ListWidth = Math.Clamp(ListWidth, 240, 1200);
+        if (!Enum.IsDefined(Layout)) Layout = SwitcherLayout.Thumbnails;
         if (!Enum.IsDefined(ShowOn)) ShowOn = ShowOn.AllMonitors;
         if (!Enum.IsDefined(ListWindowsFrom)) ListWindowsFrom = ListWindowsFrom.AllMonitors;
         if (!Enum.IsDefined(VirtualDesktops)) VirtualDesktops = VirtualDesktops.Current;
@@ -239,6 +266,7 @@ internal sealed class Settings
         if (shortcut.VirtualDesktops is { } desktops && Enum.IsDefined(desktops)) copy.VirtualDesktops = desktops;
         if (shortcut.GroupWindows is { } group && Enum.IsDefined(group)) copy.GroupWindows = group;
         if (shortcut.StayOpenAfterAltRelease is { } stayOpen) copy.StayOpenAfterAltRelease = stayOpen;
+        if (shortcut.Layout is { } layout && Enum.IsDefined(layout)) copy.Layout = layout;
         // One app's windows are listed one per tile: stacking them would give a single tile.
         if (shortcut.Windows == WindowScope.CurrentApp) copy.GroupWindows = GroupWindows.Separate;
         return copy;
