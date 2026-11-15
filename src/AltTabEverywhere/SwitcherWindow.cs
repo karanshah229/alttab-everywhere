@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -53,7 +55,7 @@ internal sealed class SwitcherWindow : Window
         """;
 
 
-    private readonly WrapPanel _panel = new() { Orientation = Orientation.Horizontal };
+    private readonly WrapPanel _panel = new TilePanel { Orientation = Orientation.Horizontal };
     private readonly ScrollViewer _scroll;
     private readonly List<Tile> _tiles = new();
     private readonly Border _searchBar;
@@ -137,6 +139,7 @@ internal sealed class SwitcherWindow : Window
     private bool _middleClickCloses = true;
     private bool _showCloseButton = true;
     private bool _hoverSelects;
+    private bool _announce; // screenReaderAnnouncements: keyboard focus follows the selection, so screen readers read it
     private POINT _lastCursor;   // hover ignores layout changes under a mouse that hasn't moved
 
     public SwitcherWindow(MonitorInfo monitor)
@@ -208,6 +211,8 @@ internal sealed class SwitcherWindow : Window
             HorizontalAlignment = HorizontalAlignment.Center,
             Visibility = Visibility.Collapsed,
         };
+        AutomationProperties.SetLiveSetting(_emptyText, AutomationLiveSetting.Assertive);
+        AutomationProperties.SetName(_panel, "Windows");
         _caption = new TextBlock
         {
             Foreground = _theme.Text,
@@ -256,13 +261,18 @@ internal sealed class SwitcherWindow : Window
         _middleClickCloses = settings.MiddleClickCloses;
         _showCloseButton = settings.ShowCloseButton;
         _hoverSelects = settings.HoverSelects;
+        _announce = settings.ScreenReaderAnnouncements;
         Native.GetCursorPos(out _lastCursor);
         bool showNumbers = settings.NumberKeys != NumberKeys.Off && settings.ShowTileNumbers;
 
         bool searching = query.Length > 0;
         _searchBar.Visibility = searching ? Visibility.Visible : Visibility.Collapsed;
         _searchText.Text = query;
+        bool wasEmpty = _emptyText.Visibility == Visibility.Visible;
         _emptyText.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        // Nothing to focus when nothing matches: say so through the live region instead.
+        if (_announce && items.Count == 0 && !wasEmpty)
+            UIElementAutomationPeer.CreatePeerForElement(_emptyText)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
 
         var (availWidth, availHeight) = AvailableSpace(settings);
         if (searching) availHeight -= SearchBarHeight; // stay within the size cap with the search bar showing
@@ -288,7 +298,7 @@ internal sealed class SwitcherWindow : Window
             int number = showNumbers ? SwitcherItem.NumberOf(items, i) : 0;
             var tile = CreateTile(i, _layout, contentWidth, contentHeight, settings.IconSize * contentScale,
                 number > 0 ? number.ToString() : null, items[i].IsBack ? BackGlyph : items[i].IsDesktop ? DesktopGlyph : null);
-            Bind(tile, items[i], settings);
+            Bind(tile, items[i], settings, i + 1, items.Count);
             _tiles.Add(tile);
             _panel.Children.Add(tile.Root);
         }
@@ -314,6 +324,9 @@ internal sealed class SwitcherWindow : Window
         }
         // Scroll the selection into view; ScrollChanged then repositions the previews.
         if (index >= 0 && index < _tiles.Count) _tiles[index].Root.BringIntoView();
+        // Screen readers announce the focused element, so focus follows the selection. (Keys go to
+        // the keyboard hook, not to the focused tile; focus here is only for UI Automation.)
+        if (_announce && index >= 0 && index < _tiles.Count) _tiles[index].Root.Focus();
         // iconsOnly: the tiles have no titles, so the selected one's shows underneath.
         if (_layout == SwitcherLayout.IconsOnly)
             _caption.Text = index >= 0 && index < _tiles.Count ? _tiles[index].Title.Text : "";
@@ -481,7 +494,7 @@ internal sealed class SwitcherWindow : Window
         {
             Width = placeholderSize,
             Height = placeholderSize,
-            Opacity = largeIcon ? 1.0 : 0.7,
+            Opacity = largeIcon || _theme.IsHighContrast ? 1.0 : 0.7, // never faded in a contrast theme
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -549,11 +562,15 @@ internal sealed class SwitcherWindow : Window
             body = stack;
         }
 
-        var root = new Border
+        // A contrast theme's thicker selection border comes out of the margin, so tiles keep their size.
+        double extra = _theme.SelectionThickness - 2;
+        var root = new TileBorder
         {
-            Margin = list ? new Thickness(5, 1, 5, 1) : new Thickness(5),
+            Margin = list ? new Thickness(5 - extra, Math.Max(0, 1 - extra), 5 - extra, Math.Max(0, 1 - extra)) : new Thickness(5 - extra),
             Padding = list ? new Thickness(8, 3, 8, 3) : new Thickness(6),
-            BorderThickness = new Thickness(2),
+            BorderThickness = new Thickness(_theme.SelectionThickness),
+            Focusable = _announce,
+            FocusVisualStyle = null, // the selection border already shows it
             CornerRadius = new CornerRadius(list ? 6 : 8),
             Background = Brushes.Transparent,
             BorderBrush = Brushes.Transparent,
@@ -591,13 +608,15 @@ internal sealed class SwitcherWindow : Window
     private const string BackGlyph = "";    // back arrow
     private const string DesktopGlyph = ""; // monitor
 
-    private void Bind(Tile tile, SwitcherItem item, Settings settings)
+    /// <param name="position">1-based place among <paramref name="count"/> tiles, for screen readers ("3 of 12").</param>
+    private void Bind(Tile tile, SwitcherItem item, Settings settings, int position, int count)
     {
         if (!item.HasWindow)
         {
             tile.Window = null;
             tile.Title.Text = item.IsBack ? "Back" : SwitcherItem.DesktopTitle;
             tile.Badge.Visibility = Visibility.Collapsed;
+            TileAutomation.Describe(tile.Root, TileAutomation.NameOf(item, Array.Empty<StateBadge>()), position, count);
             return;
         }
         var window = item.Shown;
@@ -607,7 +626,9 @@ internal sealed class SwitcherWindow : Window
         tile.Title.Text = window.Title;
         tile.Badge.Visibility = item.IsStack ? Visibility.Visible : Visibility.Collapsed;
         tile.BadgeText.Text = $"×{item.Count}";
-        foreach (var state in StateBadges.For(window, settings))
+        var states = StateBadges.For(window, settings);
+        TileAutomation.Describe(tile.Root, TileAutomation.NameOf(item, states), position, count);
+        foreach (var state in states)
         {
             tile.States.Children.Add(new TextBlock
             {
@@ -620,6 +641,20 @@ internal sealed class SwitcherWindow : Window
                 ToolTip = state.Label,
             });
         }
+    }
+
+    /// <summary>
+    /// For the self-test: what UI Automation (screen readers) sees for tile <paramref name="index"/>,
+    /// whether it has focus within this window, and its selection border's width.
+    /// </summary>
+    public (string Name, AutomationControlType Type, int Position, int Count, bool Focused, double Border) AutomationOf(int index)
+    {
+        if (index < 0 || index >= _tiles.Count) return ("", AutomationControlType.Custom, 0, 0, false, 0);
+        var root = _tiles[index].Root;
+        var peer = UIElementAutomationPeer.CreatePeerForElement(root);
+        return (peer?.GetName() ?? "", peer?.GetAutomationControlType() ?? AutomationControlType.Custom,
+            AutomationProperties.GetPositionInSet(root), AutomationProperties.GetSizeOfSet(root),
+            ReferenceEquals(FocusManager.GetFocusedElement(this), root), root.BorderThickness.Left);
     }
 
     /// <summary>For the self-test: the tooltips of tile <paramref name="index"/>'s state badges.</summary>

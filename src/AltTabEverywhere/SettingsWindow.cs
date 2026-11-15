@@ -245,6 +245,8 @@ internal sealed class SettingsWindow : Window
             (NumberKeys.Off, "Off (type into the search)"));
         Toggle("Show tile numbers", "", "showTileNumbers", _s.ShowTileNumbers);
         Toggle("Hover selects", "Pointing at a tile selects it.", "hoverSelects", _s.HoverSelects);
+        Toggle("Screen reader announcements", "Narrator and others read each tile as it's selected.",
+            "screenReaderAnnouncements", _s.ScreenReaderAnnouncements);
 
         Section("Closing");
         Toggle("Delete key closes the selected window", "", "deleteKeyCloses", _s.DeleteKeyCloses);
@@ -260,6 +262,10 @@ internal sealed class SettingsWindow : Window
         Colour("Accent colour", "Selection border. Empty: Windows' accent.", "accentColor", _s.AccentColor, "system", t => t.AccentColor);
         Colour("Background colour", "Empty: theme default.", "backgroundColor", _s.BackgroundColor, "", t => ((SolidColorBrush)t.Background).Color);
         Colour("Text colour", "Empty: theme default.", "textColor", _s.TextColor, "", t => ((SolidColorBrush)t.Text).Color);
+        Choice("High contrast", "Windows' contrast-theme colours override the colours above.", "highContrast", _s.HighContrast,
+            (HighContrastMode.System, "With a Windows contrast theme"),
+            (HighContrastMode.On, "Always"),
+            (HighContrastMode.Off, "Never"));
         Toggle("Live previews in tiles", "Live previews layout. Off: app icons, less memory.", "showThumbnails", _s.ShowThumbnails);
         Number("Tile width", "Live previews layout. 80–600.", "tileWidth", _s.TileWidth, 80, 600);
         Number("Preview height", "Live previews layout. 50–400.", "thumbnailHeight", _s.ThumbnailHeight, 50, 400);
@@ -518,6 +524,23 @@ internal sealed class SettingsWindow : Window
         var frame = new Border { Child = body, Padding = new Thickness(8), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Background = Background };
         frame.SetResourceReference(Border.BorderBrushProperty, "SurfaceStrokeColorFlyoutBrush");
         popup.Child = frame;
+
+        // Keyboard: focus starts on the current colour (or the first), arrows move around the grid,
+        // Esc closes, and focus goes back to the swatch that opened it.
+        KeyboardNavigation.SetDirectionalNavigation(grid, KeyboardNavigationMode.Cycle);
+        KeyboardNavigation.SetTabNavigation(frame, KeyboardNavigationMode.Cycle);
+        frame.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Escape) return;
+            e.Handled = true;
+            popup.IsOpen = false;
+        };
+        popup.Opened += (_, _) =>
+        {
+            int at = Array.FindIndex(Palette, hex => string.Equals("#" + hex, current, StringComparison.OrdinalIgnoreCase));
+            ((UIElement)grid.Children[Math.Max(0, at)]).Focus();
+        };
+        popup.Closed += (_, _) => anchor.Focus();
         _openPopup = popup;
         popup.IsOpen = true;
     }

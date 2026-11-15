@@ -122,6 +122,7 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | `numberKeys` | `"switch"` | What 1–9 do before anything is typed: `"switch"` to that tile's window, `"select"` it, or `"off"` (digits go to the search) |
 | `showTileNumbers` | `true` | Show 1–9 on the first nine tiles (when `numberKeys` isn't `"off"`) |
 | `hoverSelects` | `false` | Moving the mouse over a tile selects it. Only real mouse movement counts, so tiles scrolling under a still pointer don't steal the selection |
+| `screenReaderAnnouncements` | `true` | Screen readers (Narrator, NVDA, JAWS) read each tile as it's selected: its title, how many windows a stack holds, its states (not responding, running as administrator...) and its place ("3 of 12"). Done by moving keyboard focus with the selection inside the switcher, which costs nothing when no screen reader is running. When a search matches nothing, "No windows match" is announced |
 
 **Closing windows**
 
@@ -150,6 +151,7 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | `accentColor` | `"system"` | Selection border. `"system"` uses Windows' accent colour, in the shade Windows uses on that background. Or a colour such as `"#FF8800"` |
 | `backgroundColor` | `""` | A colour such as `"#202020"` replaces the theme's background. Text turns light or dark to suit it |
 | `textColor` | `""` | A colour such as `"#FFFFFF"` replaces the theme's text colour. Dimmed text and highlights are worked out from it |
+| `highContrast` | `"system"` | `"system"`: when a Windows contrast theme is on, the switcher uses its colours (window, text and highlight), with no see-through or blended colours and a thicker selection border; they override `theme` and the colour settings above. Switching contrast themes takes effect from the next Alt+Tab. `"on"`: always use Windows' system colours. `"off"`: never |
 
 **System**
 
@@ -199,6 +201,7 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 | State badges | `IsIconic`, `IsHungAppWindow`, the process token's `TokenElevation` (checked once per process per opening, only while that badge is on), and the DWM cloak for other desktops | `StateBadges.cs`, `Interop/ProcessElevation.cs` |
 | Peek | A click-through popup (layered, `WS_EX_TRANSPARENT`) shaped into a ring with `SetWindowRgn` and painted by its class brush, placed on `DWMWA_EXTENDED_FRAME_BOUNDS` just below the switcher in the topmost band. Created on the first peek of a session and destroyed when the session ends | `Interop/PeekOutline.cs` |
 | Show desktop tile | `Shell.Application` (`IShellDispatch4::ToggleDesktop`), created when the tile is picked and released straight after | `Interop/ShellDesktop.cs` |
+| Accessibility | Tiles are UI Automation list items (`TileBorder`, `TilePanel`) named from their window, with `PositionInSet`/`SizeOfSet`; focus follows the selection; "No windows match" is a live region. Contrast theme read with `SPI_GETHIGHCONTRAST` and `GetSysColor`, refreshed on `WM_SYSCOLORCHANGE` | `TileAutomation.cs`, `Theme.cs` |
 | Switch windows | `SetForegroundWindow`, with an `AttachThreadInput` fallback | `WindowActivator.cs` |
 
 ## Resource use
@@ -272,7 +275,7 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability) and 2 (find windows faster) are done. **Phase 3: looks and settings** is under way: the settings window, the app's own icon, light/dark themes, layout styles, Store-app icons, state badges, Peek and a "show desktop" tile are done; accessibility is next.
+See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability), 2 (find windows faster) and 3 (looks and settings) are done. Next up is **Phase 4: multi-monitor power tools**.
 
 ## License
 

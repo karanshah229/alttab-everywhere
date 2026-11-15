@@ -256,6 +256,12 @@ internal sealed class Settings
     /// <summary>Optional "#RRGGBB" overriding the theme's text colour; empty uses the theme.</summary>
     public string TextColor { get; set; } = "";
 
+    /// <summary>"system": Windows' contrast-theme colours whenever a contrast theme is on (they override the colours above).</summary>
+    public HighContrastMode HighContrast { get; set; } = HighContrastMode.System;
+
+    /// <summary>Screen readers (Narrator, NVDA...) hear each tile as it's selected: its title, stack size and states.</summary>
+    public bool ScreenReaderAnnouncements { get; set; } = true;
+
     // ---- System ----
 
     /// <summary>Start automatically when you sign in to Windows (per-user, no admin rights).</summary>
@@ -269,6 +275,7 @@ internal sealed class Settings
         PeekDelayMs = Math.Clamp(PeekDelayMs, 0, 5000);
         PeekBorderWidth = Math.Clamp(PeekBorderWidth, 1, 20);
         if (!Enum.IsDefined(Peek)) Peek = PeekMode.Outline;
+        if (!Enum.IsDefined(HighContrast)) HighContrast = HighContrastMode.System;
         PeekColor ??= "";
         TileWidth = Math.Clamp(TileWidth, 80, 600);
         ThumbnailHeight = Math.Clamp(ThumbnailHeight, 50, 400);

@@ -13,6 +13,20 @@ internal enum AppTheme
     Light,
 }
 
+/// <summary>Whether the switcher uses Windows' high-contrast colours.</summary>
+internal enum HighContrastMode
+{
+    /// <summary>When Windows' high-contrast mode (a contrast theme) is on.</summary>
+    System,
+    /// <summary>Always, with Windows' current system colours.</summary>
+    On,
+    /// <summary>Never: the app's own theme even in a contrast theme.</summary>
+    Off,
+}
+
+/// <summary>Windows' system colours, as a contrast theme sets them.</summary>
+internal sealed record SystemColorSet(Color Window, Color WindowText, Color Highlight, Color HighlightText);
+
 /// <summary>
 /// The switcher's colours: frozen brushes, so every overlay's UI thread can use them. Built once
 /// and cached (see <see cref="Current"/>); rebuilt only when settings change or Windows announces a
@@ -34,6 +48,10 @@ internal sealed class Theme
     public Brush CloseHoverText { get; }
     /// <summary>"#AARRGGBB" for the scrollbar thumb (it lives in a XAML style).</summary>
     public string ScrollThumb { get; }
+    /// <summary>Built from Windows' contrast-theme colours: solid colours only, and a thicker selection border.</summary>
+    public bool IsHighContrast { get; }
+    /// <summary>Width of the selected tile's border.</summary>
+    public double SelectionThickness { get; }
 
     private static readonly Color DefaultAccent = Color.FromRgb(0x00, 0x78, 0xD4); // Windows' default blue
 
@@ -46,15 +64,20 @@ internal sealed class Theme
     public static Theme Rebuild(Settings settings)
     {
         var system = WindowsColors.Read();
-        var theme = Create(settings, system.AppsUseLightTheme, system.Palette);
+        bool useContrast = settings.HighContrast == HighContrastMode.On ||
+                           (settings.HighContrast == HighContrastMode.System && WindowsColors.HighContrastOn());
+        var theme = Create(settings, system.AppsUseLightTheme, system.Palette, useContrast ? WindowsColors.SystemColors() : null);
         _current = theme;
         return theme;
     }
 
     /// <param name="systemLight">Windows' app mode is light.</param>
     /// <param name="systemPalette">Windows' accent palette (Light3..Dark3), or null if unavailable.</param>
-    public static Theme Create(Settings settings, bool systemLight, Color[]? systemPalette)
+    /// <param name="contrast">Windows' system colours when the high-contrast theme applies; they then win over every colour setting.</param>
+    public static Theme Create(Settings settings, bool systemLight, Color[]? systemPalette, SystemColorSet? contrast = null)
     {
+        if (contrast is not null) return new Theme(contrast);
+
         bool dark = settings.Theme switch
         {
             AppTheme.Dark => true,
@@ -90,6 +113,30 @@ internal sealed class Theme
         CloseHoverText = Brushes.White;
         var thumb = WithAlpha(text, 0x66);
         ScrollThumb = $"#{thumb.A:X2}{thumb.R:X2}{thumb.G:X2}{thumb.B:X2}";
+        SelectionThickness = 2;
+    }
+
+    /// <summary>
+    /// A contrast theme: only the colours Windows gives, never blended or see-through, so text keeps
+    /// the contrast the user chose. The selection is a thick border in the highlight colour.
+    /// </summary>
+    private Theme(SystemColorSet c)
+    {
+        IsHighContrast = true;
+        IsDark = Luminance(c.Window) < 0.5;
+        AccentColor = c.Highlight;
+        Background = Brush(c.Window);
+        Text = Brush(c.WindowText);
+        DimText = Text;
+        SelectedBackground = Background;
+        SelectedBorder = Brush(c.Highlight);
+        ThumbBackground = Background;
+        BadgeBackground = Background;
+        SearchBackground = Background;
+        CloseHoverBackground = Brush(c.Highlight);
+        CloseHoverText = Brush(c.HighlightText);
+        ScrollThumb = $"#FF{c.WindowText.R:X2}{c.WindowText.G:X2}{c.WindowText.B:X2}";
+        SelectionThickness = 3; // tiles give up a pixel of margin for it, so layout is unchanged
     }
 
     /// <summary>
@@ -154,5 +201,41 @@ internal sealed class Theme
             }
             return (light, palette);
         }
+
+        /// <summary>Windows' high-contrast mode (a contrast theme) is on.</summary>
+        public static bool HighContrastOn()
+        {
+            var info = new HIGHCONTRAST { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<HIGHCONTRAST>() };
+            return SystemParametersInfo(SPI_GETHIGHCONTRAST, (uint)info.cbSize, ref info, 0) && (info.dwFlags & HCF_HIGHCONTRASTON) != 0;
+        }
+
+        /// <summary>The system colours a contrast theme sets (window, text, selection).</summary>
+        public static SystemColorSet SystemColors() =>
+            new(Sys(COLOR_WINDOW), Sys(COLOR_WINDOWTEXT), Sys(COLOR_HIGHLIGHT), Sys(COLOR_HIGHLIGHTTEXT));
+
+        private static Color Sys(int index)
+        {
+            uint c = GetSysColor(index); // 0x00BBGGRR
+            return Color.FromRgb((byte)c, (byte)(c >> 8), (byte)(c >> 16));
+        }
+
+        private const uint SPI_GETHIGHCONTRAST = 0x0042;
+        private const int HCF_HIGHCONTRASTON = 0x1;
+        private const int COLOR_WINDOW = 5, COLOR_WINDOWTEXT = 8, COLOR_HIGHLIGHT = 13, COLOR_HIGHLIGHTTEXT = 14;
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct HIGHCONTRAST
+        {
+            public int cbSize;
+            public int dwFlags;
+            public IntPtr lpszDefaultScheme;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool SystemParametersInfo(uint action, uint param, ref HIGHCONTRAST info, uint winIni);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetSysColor(int index);
     }
 }

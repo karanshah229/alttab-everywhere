@@ -39,7 +39,7 @@ Inspiration comes from:
 - [x] Low idle cost: 0 ms CPU, ~10–16 MB working set; opens in ~105–130 ms
 - [x] Phase 1: start with Windows, hook recovery, close from the switcher, exclusions, desktops scope, per-monitor lists, MIT licence
 - [x] Phase 2: type to search, several shortcuts with their own filters (including a current-app switcher), number keys, Home/End/Page Up/Page Down, hover to select
-- [x] Phase 3 (part): settings window, own icon, light/dark and accent colours, layout styles (previews, large icons, compact list, icons only), Store app icons, state badges (minimized, admin, not responding, other desktop), Peek (outline the selected window), "Show desktop" tile
+- [x] Phase 3: settings window, own icon, light/dark and accent colours, layout styles (previews, large icons, compact list, icons only), Store app icons, state badges (minimized, admin, not responding, other desktop), Peek (outline the selected window), "Show desktop" tile, accessibility (screen-reader names, high contrast, keyboard-only colour picker)
 
 ---
 
@@ -69,7 +69,7 @@ These make it safe to leave running all day, every day. None adds idle work.
 | 13 | **Home / End / Page Up / Page Down** | Navigating long, scrolling lists | S | None | Ours |
 | 14 | **Hover to select** (optional) | Some people steer with the mouse | S | None | AltTab (macOS), KDE |
 
-## Phase 3: Looks and settings
+## Phase 3: Looks and settings (done)
 
 | # | Feature | Why | Effort | Idle cost | Seen in |
 |---|---|---|---|---|---|
@@ -81,7 +81,7 @@ These make it safe to leave running all day, every day. None adds idle work.
 | 20 | ✅ **State badges**: minimized, running as admin, not responding, on another desktop | Explains surprises | S–M | None | Ours |
 | 21 | ✅ **Peek**: highlight the selected window where it really is | On two screens, see which window is about to come forward | M | None | Windows (Aero Peek), KDE ("show selected window"), AltTab (macOS) |
 | 22 | ✅ **"Show desktop" tile** (optional) | Quick way to clear the screen from the switcher | S | None | KDE |
-| 23 | **Accessibility**: screen-reader names, high contrast, keyboard-only | Needed before a public release | M | None | Windows, GNOME |
+| 23 | ✅ **Accessibility**: screen-reader names, high contrast, keyboard-only | Needed before a public release | M | None | Windows, GNOME |
 
 ## Phase 4: Multi-monitor power tools
 

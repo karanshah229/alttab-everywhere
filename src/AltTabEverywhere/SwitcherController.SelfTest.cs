@@ -50,6 +50,7 @@ internal sealed partial class SwitcherController
                 _settingsOverride.Layout = layout;
                 _settingsOverride.Peek = PeekMode.Outline;
                 _settingsOverride.PeekDelayMs = 0;
+                _settingsOverride.ScreenReaderAnnouncements = true;
                 layoutTag = $"[{layout}] ";
                 // Repeat real windows to reach the target count; geometry is all that matters here.
                 // Every third tile is a two-window stack so badges and stack cycling are covered too.
@@ -93,6 +94,25 @@ internal sealed partial class SwitcherController
                         Select(0);
                     }
                 }
+
+                // Screen readers: every tile is a list item named after its window, with its place in
+                // the list, and the selected tile has focus on every switcher.
+                foreach (int index in new[] { 0, count - 1 }.Distinct())
+                {
+                    Select(index);
+                    var item = _items[index];
+                    string want = TileAutomation.NameOf(item, StateBadges.For(item.Shown, Settings));
+                    foreach (var overlay in shown)
+                    {
+                        var a = overlay.Query(w => w.AutomationOf(index));
+                        checks += 3;
+                        if (a.Name != want) Fail($"{count} tiles, {overlay.Monitor.DeviceName}, tile {index}: screen-reader name differs");
+                        if (a.Type != System.Windows.Automation.Peers.AutomationControlType.ListItem || a.Position != index + 1 || a.Count != count)
+                            Fail($"{count} tiles, {overlay.Monitor.DeviceName}, tile {index}: {a.Type} {a.Position} of {a.Count}");
+                        if (!a.Focused) Fail($"{count} tiles, {overlay.Monitor.DeviceName}, tile {index}: selected tile doesn't have focus");
+                    }
+                }
+                Select(0);
 
                 // Peek: the outline follows the selection, sits under every switcher window, and is
                 // there whenever the selected window has a visible place to outline.
@@ -268,6 +288,42 @@ internal sealed partial class SwitcherController
                     End();
                 }
             }
+            layoutTag = "";
+
+            // High contrast, in every layout: tiles land exactly where they do in the normal theme (the
+            // thicker border comes out of the margin), and the selection border is the highlight colour.
+            foreach (var layout in Enum.GetValues<SwitcherLayout>())
+            {
+                layoutTag = $"[{layout}] ";
+                var positions = new List<List<Rect>>();
+                foreach (var contrast in new[] { HighContrastMode.Off, HighContrastMode.On })
+                {
+                    _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+                    _settingsOverride.ShowDesktopTile = false;
+                    _settingsOverride.Layout = layout;
+                    _settingsOverride.HighContrast = contrast;
+                    var theme = Theme.Rebuild(_settingsOverride);
+                    _items = Enumerable.Range(0, 7).Select(i => new SwitcherItem(new[] { real[i % real.Count] })).ToList();
+                    _active = true;
+                    _sessionId++;
+                    _selected = 2;
+                    PlanForTest(_items);
+                    await ShowUiAsync();
+                    await Settle();
+                    var overlay = _plan[0].Host;
+                    var (rects, a) = overlay.Query(w => { w.UpdateLayout(); return (w.TileRects.ToList(), w.AutomationOf(2)); });
+                    positions.Add(rects);
+                    checks += 2;
+                    if (theme.IsHighContrast != (contrast == HighContrastMode.On)) Fail($"high contrast {contrast}: theme says {theme.IsHighContrast}");
+                    if (a.Border != theme.SelectionThickness) Fail($"high contrast {contrast}: selection border {a.Border}, expected {theme.SelectionThickness}");
+                    End();
+                }
+                checks++;
+                // Each box grows into its margin by the extra border width, so compare centres.
+                static Point Centre(Rect r) => new(r.X + r.Width / 2, r.Y + r.Height / 2);
+                if (!positions[0].Select(Centre).SequenceEqual(positions[1].Select(Centre))) Fail("high contrast moved the tiles");
+            }
+            Theme.Rebuild(_store.Current);
             layoutTag = "";
 
             // listWindowsFrom = thisMonitor: each monitor's switcher lists only its own windows.

@@ -14,6 +14,8 @@ internal sealed class SystemMessageWindow : IDisposable
     private const int WM_DISPLAYCHANGE = 0x007E;
     private const int WM_SETTINGCHANGE = 0x001A;
     private const int WM_DWMCOLORIZATIONCOLORCHANGED = 0x0320;
+    private const int WM_SYSCOLORCHANGE = 0x0015;   // a contrast theme was turned on or off
+    private const int SPI_SETHIGHCONTRAST = 0x0043;
     private const int WM_POWERBROADCAST = 0x0218;
     private const int WM_WTSSESSION_CHANGE = 0x02B1;
     private const int PBT_APMRESUMESUSPEND = 0x0007;
@@ -62,6 +64,8 @@ internal sealed class SystemMessageWindow : IDisposable
             case WM_DISPLAYCHANGE:
                 DisplayChanged?.Invoke();
                 break;
+            case WM_SYSCOLORCHANGE:
+            case WM_SETTINGCHANGE when (int)wParam == SPI_SETHIGHCONTRAST:
             case WM_DWMCOLORIZATIONCOLORCHANGED:
                 ColorsChanged?.Invoke();
                 break;
