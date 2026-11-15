@@ -28,6 +28,11 @@ internal sealed class SwitcherWindow : Window
     private static readonly Brush ThumbBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x50, 0x00, 0x00, 0x00)));
     private static readonly Brush BadgeBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)));
     private static readonly Brush CloseHoverBackground = Frozen(new SolidColorBrush(Color.FromRgb(0xC4, 0x2B, 0x1C)));
+    private static readonly Brush SearchBackground = Frozen(new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)));
+    private static readonly Brush DimText = Frozen(new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)));
+
+    /// <summary>Height of the search bar including its gap below, in DIPs (only shown while searching).</summary>
+    public const double SearchBarHeight = 36;
 
     // A thin, dark scrollbar; the default WPF one is light grey and wide.
     private const string ScrollBarStyleXaml = """
@@ -59,6 +64,9 @@ internal sealed class SwitcherWindow : Window
     private readonly WrapPanel _panel = new() { Orientation = Orientation.Horizontal };
     private readonly ScrollViewer _scroll;
     private readonly List<Tile> _tiles = new();
+    private readonly Border _searchBar;
+    private readonly TextBlock _searchText;
+    private readonly TextBlock _emptyText;
 
     public MonitorInfo Monitor { get; }
     public IntPtr Handle { get; }
@@ -74,6 +82,13 @@ internal sealed class SwitcherWindow : Window
     {
         var (width, height) = AvailableSpace();
         return TileLayout.MaxColumns(count, width, height, settings);
+    }
+
+    /// <summary>Whole rows visible at once for this grid (Page Up / Page Down).</summary>
+    public int RowsPerPage(int count, Settings settings, int columns)
+    {
+        var (width, height) = AvailableSpace();
+        return TileLayout.RowsPerPage(count, width, height, settings, columns);
     }
 
     private (double Width, double Height) AvailableSpace() =>
@@ -104,15 +119,25 @@ internal sealed class SwitcherWindow : Window
                rect.Height <= work.Height * TileLayout.MaxHeightFraction + 1;
     }
 
+    /// <summary>Height of the visible part of the tile grid, in DIPs (used by --selftest).</summary>
+    public double ViewportHeight => _scroll.ViewportHeight;
+
+    /// <summary>Whether the search bar is visible (used by --selftest).</summary>
+    public bool IsSearchBarShown => _searchBar.Visibility == Visibility.Visible && IsVisible;
+
     /// <summary>Whether the current session needed a scrollbar on this monitor.</summary>
     public bool IsScrolling => _scroll.ExtentHeight > _scroll.ViewportHeight + 0.5;
 
     public event Action<int>? TileClicked;
     /// <summary>The × on a tile, or a middle-click (when enabled in settings).</summary>
     public event Action<int>? TileCloseRequested;
+    /// <summary>The mouse moved onto a tile (raised only with hoverSelects, and only for real mouse movement).</summary>
+    public event Action<int>? TileHovered;
 
     private bool _middleClickCloses = true;
     private bool _showCloseButton = true;
+    private bool _hoverSelects;
+    private POINT _lastCursor;   // hover ignores layout changes under a mouse that hasn't moved
 
     public SwitcherWindow(MonitorInfo monitor)
     {
@@ -143,7 +168,54 @@ internal sealed class SwitcherWindow : Window
         // Live previews are drawn by DWM on top of the window, so they must be moved (and
         // clipped) by hand whenever the grid scrolls.
         _scroll.ScrollChanged += (_, _) => UpdateThumbnails();
-        Content = new Border { Padding = new Thickness(WindowPadding), Child = _scroll };
+
+        // Search bar: only visible once something has been typed.
+        _searchText = new TextBlock
+        {
+            Foreground = Brushes.WhiteSmoke,
+            FontSize = 14,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var searchIcon = new TextBlock
+        {
+            Text = "", // Search glyph
+            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+            FontSize = 14,
+            Foreground = DimText,
+            Margin = new Thickness(0, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var searchRow = new DockPanel();
+        DockPanel.SetDock(searchIcon, Dock.Left);
+        searchRow.Children.Add(searchIcon);
+        searchRow.Children.Add(_searchText);
+        _searchBar = new Border
+        {
+            Height = SearchBarHeight - 6,
+            Margin = new Thickness(5, 0, 5, 6),
+            Padding = new Thickness(10, 0, 10, 0),
+            CornerRadius = new CornerRadius(6),
+            Background = SearchBackground,
+            Visibility = Visibility.Collapsed,
+            Child = searchRow,
+        };
+        _emptyText = new TextBlock
+        {
+            Text = "No windows match",
+            Foreground = DimText,
+            FontSize = 13,
+            Margin = new Thickness(10, 16, 10, 20),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Visibility = Visibility.Collapsed,
+        };
+        var layout = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(_searchBar, Dock.Top);
+        DockPanel.SetDock(_emptyText, Dock.Top);
+        layout.Children.Add(_searchBar);
+        layout.Children.Add(_emptyText);
+        layout.Children.Add(_scroll);
+        Content = new Border { Padding = new Thickness(WindowPadding), Child = layout };
 
         Handle = new WindowInteropHelper(this).EnsureHandle();
 
@@ -161,7 +233,8 @@ internal sealed class SwitcherWindow : Window
     }
 
     /// <param name="columns">Shared across monitors so tiles line up the same way on every screen.</param>
-    public void ShowSession(IReadOnlyList<SwitcherItem> items, int selectedIndex, Settings settings, int columns)
+    /// <param name="query">The search text; empty hides the search bar.</param>
+    public void ShowSession(IReadOnlyList<SwitcherItem> items, int selectedIndex, Settings settings, int columns, string query = "")
     {
         ClearThumbnails();
         _panel.Children.Clear();
@@ -169,14 +242,24 @@ internal sealed class SwitcherWindow : Window
         _showThumbnails = settings.ShowThumbnails;
         _middleClickCloses = settings.MiddleClickCloses;
         _showCloseButton = settings.ShowCloseButton;
+        _hoverSelects = settings.HoverSelects;
+        Native.GetCursorPos(out _lastCursor);
+        bool showNumbers = settings.NumberKeys != NumberKeys.Off && settings.ShowTileNumbers;
+
+        bool searching = query.Length > 0;
+        _searchBar.Visibility = searching ? Visibility.Visible : Visibility.Collapsed;
+        _searchText.Text = query;
+        _emptyText.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
         var (availWidth, availHeight) = AvailableSpace();
+        if (searching) availHeight -= SearchBarHeight; // stay within the size cap with the search bar showing
         double scale = TileLayout.FitScale(items.Count, availWidth, availHeight, settings, columns);
         double tileWidth = settings.TileWidth * scale;
         double thumbHeight = settings.ThumbnailHeight * scale;
         // Exactly `columns` tiles per row. Layout rounding is off, so tile widths add up exactly;
         // the extra pixel only absorbs floating-point error.
         _panel.Width = columns * TileLayout.OuterWidth(settings, scale) + 1;
+        _searchBar.Width = _panel.Width - 10; // a long query is trimmed, never widens the switcher
         _columns = columns;
         // Cap the visible height; anything taller scrolls inside the switcher.
         _scroll.MaxHeight = availHeight;
@@ -184,7 +267,7 @@ internal sealed class SwitcherWindow : Window
 
         for (int i = 0; i < items.Count; i++)
         {
-            var tile = CreateTile(i, tileWidth, thumbHeight);
+            var tile = CreateTile(i, tileWidth, thumbHeight, showNumbers && i < 9 ? (i + 1).ToString() : null);
             Bind(tile, items[i]);
             _tiles.Add(tile);
             _panel.Children.Add(tile.Root);
@@ -265,8 +348,20 @@ internal sealed class SwitcherWindow : Window
     }
 
     /// <summary>Builds an empty tile; <see cref="Bind"/> fills in the window it shows.</summary>
-    private Tile CreateTile(int index, double tileWidth, double thumbHeight)
+    /// <param name="number">"1".."9" for the number keys, or null.</param>
+    private Tile CreateTile(int index, double tileWidth, double thumbHeight, string? number)
     {
+        var numberText = new TextBlock
+        {
+            Text = number ?? "",
+            Foreground = DimText,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = number is null ? Visibility.Collapsed : Visibility.Visible,
+        };
+
         var icon = new Image
         {
             Width = 16,
@@ -331,9 +426,11 @@ internal sealed class SwitcherWindow : Window
         };
 
         var header = new DockPanel { Height = 24, Margin = new Thickness(0, 0, 0, 6) };
+        DockPanel.SetDock(numberText, Dock.Left);
         DockPanel.SetDock(icon, Dock.Left);
         DockPanel.SetDock(close, Dock.Right);
         DockPanel.SetDock(badge, Dock.Right);
+        header.Children.Add(numberText);
         header.Children.Add(icon);
         header.Children.Add(close);
         header.Children.Add(badge);
@@ -386,6 +483,16 @@ internal sealed class SwitcherWindow : Window
             if (e.ChangedButton != MouseButton.Middle || !_middleClickCloses) return;
             e.Handled = true;
             TileCloseRequested?.Invoke(index);
+        };
+        root.MouseMove += (_, _) =>
+        {
+            if (!_hoverSelects) return;
+            // WPF also raises MouseMove when tiles scroll or appear under a still mouse; only a
+            // real movement of the pointer should change the selection.
+            Native.GetCursorPos(out var cursor);
+            if (cursor.X == _lastCursor.X && cursor.Y == _lastCursor.Y) return;
+            _lastCursor = cursor;
+            TileHovered?.Invoke(index);
         };
         root.MouseEnter += (_, _) => { if (_showCloseButton) close.Visibility = Visibility.Visible; };
         root.MouseLeave += (_, _) => close.Visibility = Visibility.Collapsed;

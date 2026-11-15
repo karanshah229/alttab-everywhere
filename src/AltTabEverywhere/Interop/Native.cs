@@ -118,6 +118,19 @@ internal static class Native
     [DllImport("user32.dll")]
     public static extern short GetAsyncKeyState(int vKey);
 
+    [DllImport("user32.dll")]
+    public static extern short GetKeyState(int vKey);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetKeyboardLayout(uint idThread);
+
+    /// <summary>wFlags bit 2 (0x4): don't change the keyboard state (dead keys), Windows 10 1607+.</summary>
+    public const uint TOUNICODE_NO_STATE_CHANGE = 0x4;
+
+    [DllImport("user32.dll")]
+    public static extern int ToUnicodeEx(uint wVirtKey, uint wScanCode, byte[] lpKeyState,
+        [Out] char[] pwszBuff, int cchBuff, uint wFlags, IntPtr dwhkl);
+
     // ---- SendInput ----
     public const uint INPUT_KEYBOARD = 1;
     public const uint KEYEVENTF_KEYUP = 0x0002;

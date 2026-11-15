@@ -70,6 +70,13 @@ internal static class TileLayout
         return MinScale;
     }
 
+    /// <summary>How many whole rows fit in the visible area (for Page Up / Page Down); at least 1.</summary>
+    public static int RowsPerPage(int count, double availWidth, double availHeight, Settings s, int columns)
+    {
+        double scale = FitScale(count, availWidth, availHeight, s, columns);
+        return Math.Max(1, (int)(availHeight / OuterHeight(s, scale)));
+    }
+
     /// <summary>Whether the grid at this scale needs a scrollbar.</summary>
     public static bool NeedsScrolling(int count, int columns, double scale, double availHeight, Settings s) =>
         (count + columns - 1) / Math.Max(1, columns) * OuterHeight(s, scale) > availHeight;

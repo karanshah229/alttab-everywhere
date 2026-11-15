@@ -25,6 +25,9 @@ internal sealed class SwitcherItem
     /// <summary>Moves to the next / previous window in the stack, wrapping around.</summary>
     public void Cycle(int delta) => Current = GridNavigation.Step(Current, delta, Count);
 
+    /// <summary>Makes the tile show a given window of the stack (e.g. the one a search matched).</summary>
+    public void ShowWindow(int index) => Current = Math.Clamp(index, 0, Count - 1);
+
     public bool Contains(IntPtr hwnd) => Windows.Any(w => w.Handle == hwnd);
 }
 

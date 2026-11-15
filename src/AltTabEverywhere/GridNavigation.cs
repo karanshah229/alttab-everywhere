@@ -44,4 +44,19 @@ internal static class GridNavigation
 
         return index;
     }
+
+    /// <summary>
+    /// Page Up / Page Down: <paramref name="rowsPerPage"/> rows up or down in the same column,
+    /// stopping (not wrapping) at the first and last rows. Down past a short last row lands on the
+    /// last tile.
+    /// </summary>
+    public static int Page(int index, int delta, int count, int columns, int rowsPerPage)
+    {
+        if (count <= 0) return 0;
+        columns = Math.Clamp(columns, 1, count);
+        index = Math.Clamp(index, 0, count - 1);
+        int lastRow = (count - 1) / columns;
+        int row = Math.Clamp(index / columns + Math.Sign(delta) * Math.Max(1, rowsPerPage), 0, lastRow);
+        return Math.Min(row * columns + index % columns, count - 1);
+    }
 }

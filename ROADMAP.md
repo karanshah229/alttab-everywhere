@@ -36,7 +36,9 @@ Inspiration comes from:
 - [x] Stay-open mode (like Windows' Ctrl+Alt+Tab)
 - [x] 75% × 75% size cap with internal scrolling
 - [x] JSON settings with live reload; tray icon (pause, edit settings, log, exit)
-- [x] Low idle cost: 0 ms CPU, ~10–15 MB working set; opens in ~105–130 ms
+- [x] Low idle cost: 0 ms CPU, ~10–16 MB working set; opens in ~105–130 ms
+- [x] Phase 1: start with Windows, hook recovery, close from the switcher, exclusions, desktops scope, per-monitor lists, MIT licence
+- [x] Phase 2: type to search, several shortcuts with their own filters (including a current-app switcher), number keys, Home/End/Page Up/Page Down, hover to select
 
 ---
 
@@ -56,7 +58,7 @@ These make it safe to leave running all day, every day. None adds idle work.
 | 8 | **"Show on" option: the monitor with the active window** | Completes the existing all / under-mouse choice | S | None | VistaSwitcher, AltTab (macOS) |
 | 9 | **Licence**: MIT | Open source by default: without a licence nobody may legally use the code | S | — | — |
 
-## Phase 2: Find windows faster
+## Phase 2: Find windows faster (done)
 
 | # | Feature | Why | Effort | Idle cost | Seen in |
 |---|---|---|---|---|---|

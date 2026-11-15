@@ -17,6 +17,32 @@ public class SettingsTests
     }
 
     [Fact]
+    public void Phase_2_defaults()
+    {
+        var settings = SettingsStore.Deserialize("{}");
+        Assert.True(settings.TypeToSearch);
+        Assert.Equal(SearchMode.Fuzzy, settings.SearchMode);
+        Assert.Equal(NumberKeys.Switch, settings.NumberKeys);
+        Assert.True(settings.ShowTileNumbers);
+        Assert.False(settings.HoverSelects);
+        Assert.Equal("Alt+Tab", Assert.Single(settings.Shortcuts).Keys);
+    }
+
+    [Fact]
+    public void Phase_2_settings_parse()
+    {
+        var settings = SettingsStore.Deserialize("""
+            { "typeToSearch": false, "searchMode": "contains", "numberKeys": "select",
+              "showTileNumbers": false, "hoverSelects": true, "numberKeysTypo": 1 }
+            """);
+        Assert.False(settings.TypeToSearch);
+        Assert.Equal(SearchMode.Contains, settings.SearchMode);
+        Assert.Equal(NumberKeys.Select, settings.NumberKeys);
+        Assert.False(settings.ShowTileNumbers);
+        Assert.True(settings.HoverSelects);
+    }
+
+    [Fact]
     public void Written_file_uses_camelCase_keys_and_string_enums()
     {
         var json = SettingsStore.Serialize(new Settings());

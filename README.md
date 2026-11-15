@@ -2,7 +2,7 @@
 
 An Alt+Tab switcher for Windows 11 that appears on **every monitor at once**. Windows' own switcher only ever shows on the main display.
 
-> Status: **early (v0.4)**. Works day to day; settings are a JSON file and there's no settings window yet.
+> Status: **early (v0.5)**. Works day to day; settings are a JSON file and there's no settings window yet.
 
 Three rules guide every feature:
 1. **Lowest resource use possible.** When idle it does no work (0 ms of CPU) and uses about 10–16 MB working set (about 40–50 MB private). The switcher appears about 110–130 ms after Alt+Tab. See [Resource use](#resource-use).
@@ -38,12 +38,17 @@ Log file: `%LOCALAPPDATA%\AltTabEverywhere\log.txt`. It records counts and layou
 
 | Keys | Action |
 |---|---|
-| Alt+Tab / Alt+Shift+Tab | Open the switcher, then move forward or back |
+| Alt+Tab / Alt+Shift+Tab | Open the switcher, then move forward or back. Add more shortcuts with [`shortcuts`](#shortcuts) |
 | ← / → | Previous / next tile |
 | ↑ / ↓ | Row up / down, wrapping around. Every monitor uses the same grid, so a row is a row on every screen |
-| Alt+` / Alt+Shift+` | In stacked mode: cycle through the windows of the selected app. The badge shows "2/3" |
+| Home / End | First / last tile |
+| Page Up / Page Down | A screenful of rows up or down, stopping at the top and bottom |
+| 1–9 | Switch to that tile (the number shows on the tile). Set `numberKeys` to `"select"` or `"off"` |
+| Type letters | Search titles and app names; the tiles filter as you type. Works while holding Alt |
+| Backspace | Remove the last typed character |
+| Alt+` / Alt+Shift+` | In stacked mode: cycle through the windows of the selected app. The badge shows "2/3". This is the key above Tab, whatever symbol your keyboard layout puts on it |
 | Release Alt, or press Enter | Switch to the selected window |
-| Esc | Close without switching |
+| Esc | Clear the search; with no search, close without switching |
 | Delete | Close the selected window. The app can still ask to save. The switcher stays open |
 | Click a tile | Switch to that window |
 | Middle-click a tile, or click its × | Close that window |
@@ -52,11 +57,29 @@ Log file: `%LOCALAPPDATA%\AltTabEverywhere\log.txt`. It records counts and layou
 
 A quick Alt+Tab tap switches to the previous window straight away. The switcher appears as soon as it's drawn; set `showDelayMs` if you'd rather quick taps never show it.
 
+While searching, 1–9 type digits instead of switching. To search for something that starts with a digit, type a letter first or turn `numberKeys` off. Ctrl and Win combinations are never taken over by the search.
+
 The switcher takes at most 75% of a monitor's width and 75% of its height. With many windows, tiles first shrink slightly (to 75% of their size at most); after that the grid scrolls inside the switcher, and the selection always stays in view.
 
 ## Settings
 
 Right-click the tray icon and choose **Edit settings…**. This opens `%APPDATA%\AltTabEverywhere\settings.json`, which is created with defaults on first run. Changes apply as soon as you save. If the file has a mistake, the switcher keeps your previous settings and writes the error to the log. Comments and trailing commas are allowed. Tray-menu toggles also write to this file, and they don't keep comments.
+
+<a id="shortcuts"></a>**Shortcuts**
+
+| Key | Default | Meaning |
+|---|---|---|
+| `shortcuts` | `[{ "keys": "Alt+Tab" }]` | The key combinations that open the switcher. Each can have its own filters (below). Hold the modifiers and press the key again to move on; releasing all the modifiers switches |
+
+Each entry has `keys` and, optionally, any of these. Anything left out uses the global setting:
+
+| Entry key | Meaning |
+|---|---|
+| `keys` | Modifiers (`Alt`, `Ctrl`, `Shift`, `Win`) and one key: `Tab`, `Space`, `` ` `` (the key above Tab), `A`–`Z`, `0`–`9`, `F1`–`F24`. At least one of Alt, Ctrl or Win. Examples: `"Alt+Tab"`, `"Win+Tab"`, `"Ctrl+Alt+Tab"`, ``"Alt+`"`` |
+| `windows` | `"all"` (default) or `"currentApp"`: only the windows of the app that had focus, one tile each, like Cmd+` on macOS or Alt+` on GNOME |
+| `showOn`, `listWindowsFrom`, `virtualDesktops`, `groupWindows`, `stayOpenAfterAltRelease` | Override that setting for sessions this shortcut opens |
+
+Shift reverses direction, unless Shift is part of the shortcut. A shortcut that Windows also uses (`Win+Tab` for Task View, `Ctrl+Alt+Tab` for its sticky switcher) is taken over while the app runs. Invalid or repeated entries are skipped and named in the log; if none is valid, Alt+Tab is used.
 
 **When and where it appears**
 
@@ -75,6 +98,16 @@ Right-click the tray icon and choose **Edit settings…**. This opens `%APPDATA%
 | `groupWindows` | `"separate"` | `"separate"`: one tile per window. `"stacked"`: one tile per app, with a ×N badge; Alt+` picks a window inside the stack. Apps are told apart by their shell app ID, so Chrome profiles stay separate |
 | `excludedApps` | `[]` | Apps never listed. Each entry can be an executable name (`"notepad.exe"` or `"notepad"`), a full path, or a shell app ID (see `--list`) |
 | `excludedTitles` | `[]` | Windows never listed if their title contains any of these. Not case-sensitive |
+
+**Finding windows**
+
+| Key | Default | Meaning |
+|---|---|---|
+| `typeToSearch` | `true` | Typing while the switcher is open filters the tiles by window title and app name. Every typed word must match; the best matches come first, and equal matches keep most-recent-first order |
+| `searchMode` | `"fuzzy"` | `"fuzzy"`: letters in order with gaps allowed (`wtm` finds Windows Terminal). `"contains"`: each word must appear as typed |
+| `numberKeys` | `"switch"` | What 1–9 do before anything is typed: `"switch"` to that tile's window, `"select"` it, or `"off"` (digits go to the search) |
+| `showTileNumbers` | `true` | Show 1–9 on the first nine tiles (when `numberKeys` isn't `"off"`) |
+| `hoverSelects` | `false` | Moving the mouse over a tile selects it. Only real mouse movement counts, so tiles scrolling under a still pointer don't steal the selection |
 
 **Closing windows**
 
@@ -102,20 +135,28 @@ Example:
 
 ```json
 {
+  "shortcuts": [
+    { "keys": "Alt+Tab", "listWindowsFrom": "thisMonitor" },
+    { "keys": "Win+Tab", "virtualDesktops": "all" },
+    { "keys": "Alt+`", "windows": "currentApp" }
+  ],
   "showOn": "allMonitors",
-  "listWindowsFrom": "thisMonitor",
   "groupWindows": "stacked",
+  "searchMode": "contains",
   "excludedApps": ["superwhisper.exe"],
   "excludedTitles": ["Private browsing"],
   "startWithWindows": true
 }
 ```
 
+Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on every desktop, and Alt+` cycles through the windows of the app you're in. Inside an Alt+Tab session, Alt+` still cycles through a stack.
+
 ## How it works
 
 | Piece | API | File |
 |---|---|---|
-| Take over Alt+Tab | `SetWindowsHookEx(WH_KEYBOARD_LL)`; return 1 to swallow Tab | `KeyboardHook.cs` |
+| Take over Alt+Tab and the other shortcuts | `SetWindowsHookEx(WH_KEYBOARD_LL)`; return 1 to swallow the key. The key above Tab is matched by scan code (0x29), so it works on any layout | `KeyboardHook.cs`, `ShortcutKeys.cs` |
+| Type to search | `ToUnicodeEx` with the foreground window's keyboard layout and the "don't change keyboard state" flag, so dead keys in other apps aren't disturbed. Matching is pure and unit-tested. App names need a process lookup, so they're only read once you start typing | `KeyboardHook.cs`, `WindowSearch.cs` |
 | Stop the app's menu bar opening when Alt is released | `SendInput` of an unassigned key (0xE8) while Alt is held | `WindowActivator.cs` |
 | List the windows | The shell's own Alt+Tab list: undocumented `IApplicationViewCollection` → `IApplicationView::GetShowInSwitchers`, sorted by `GetLastActivationTimestamp`. This matches Windows exactly | `Interop/ShellViews.cs` |
 | Fallback list | `EnumWindows`, `DWMWA_CLOAKED`, Raymond Chen's owner/popup rule. Used only if the shell interfaces fail | `WindowEnumerator.cs` |
@@ -163,17 +204,21 @@ dotnet run -c Release --project src/AltTabEverywhere -- --measure
 
 ## Tests
 
-Run the unit tests (grid movement, tile layout, grouping, settings parsing) with:
+Run the unit tests (grid movement and paging, tile layout, grouping, search, shortcut parsing, settings parsing) with:
 
 ```bash
 dotnet test
 ```
 
 To test the real switcher, run `--selftest`. It opens the switcher on every monitor with 1 to 47 tiles, some of them app stacks, and checks:
-- for every tile and every arrow key, where the selection lands against where the tiles actually are on each screen;
+- for every tile and every arrow, Home, End, Page Up and Page Down key, where the selection lands against where the tiles actually are on each screen;
 - that the selection is always scrolled into view;
 - that the switcher stays within the 75% × 75% cap;
-- that cycling a stack shows the right window without moving any tiles.
+- that cycling a stack shows the right window without moving any tiles;
+- with each monitor listing its own windows, that no screen lists another screen's windows;
+- typing searches (real words from window titles, a two-word search and one that matches nothing): the tile count on every screen, the search bar, the size cap, number keys while filtered, and that Backspace brings back the full list.
+
+The keyboard hook itself can't be self-tested: Windows marks simulated keys as injected, and the hook ignores injected keys on purpose.
 
 Results go to the log, and the exit code is 0 if every check passed:
 
@@ -190,13 +235,13 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 - **Elevated (admin) windows:** while one has focus, the hook receives no keys, so Windows' own Alt+Tab appears instead. Fixing this needs a signed build with `uiAccess="true"` installed under Program Files.
 - **Minimized windows** show their icon instead of a live preview.
 - **Store/UWP apps** may show a generic icon.
-- **Alt+`** uses the key above Tab, wherever it is on your keyboard layout (`VK_OEM_3`). On some non-US layouts that key has a different symbol.
+- **Search ignores AltGr characters** (AltGr is Ctrl+Alt to Windows, and Ctrl combinations are left alone) and dead-key accents.
 - If the UI thread stalls, Windows can silently remove the hook. The app keeps running, but Windows' own Alt+Tab returns.
 - Tested with two monitors at different scaling (125% and 100%) using `--demo` and `--selftest`.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phase 1 (daily-driver reliability) is done. Next up is **Phase 2: find windows faster**: type to search, several shortcuts each with their own filters, number keys, Home/End/Page Up/Page Down, and hover to select.
+See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability) and 2 (find windows faster) are done. Next up is **Phase 3: looks and settings**: a settings window, the app's own icon, light/dark themes, layout styles, Store-app icons, state badges, Peek, a "show desktop" tile, and accessibility.
 
 ## License
 

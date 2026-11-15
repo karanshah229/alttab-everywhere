@@ -20,6 +20,8 @@ internal sealed class SettingsStore : IDisposable
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        // A file people edit by hand: write "Alt+Tab", not "Alt+Tab". It is never embedded in HTML.
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
     private readonly Dispatcher _dispatcher;
@@ -92,7 +94,7 @@ internal sealed class SettingsStore : IDisposable
                 root = new System.Text.Json.Nodes.JsonObject();
             }
             root[key] = value;
-            File.WriteAllText(FilePath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(FilePath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = JsonOptions.Encoder }));
         }
         catch (Exception ex)
         {

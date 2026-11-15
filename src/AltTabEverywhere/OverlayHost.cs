@@ -28,6 +28,8 @@ internal sealed class OverlayHost
     public event Action? Deactivated;
     /// <summary>Raised on the controller's thread.</summary>
     public event Action<int>? TileCloseRequested;
+    /// <summary>Raised on the controller's thread (hoverSelects).</summary>
+    public event Action<int>? TileHovered;
 
     public OverlayHost(MonitorInfo monitor, Dispatcher controller)
     {
@@ -46,6 +48,7 @@ internal sealed class OverlayHost
                 window.TileClicked += index => controller.InvokeAsync(() => TileClicked?.Invoke(index));
                 window.Deactivated += (_, _) => controller.InvokeAsync(() => Deactivated?.Invoke());
                 window.TileCloseRequested += index => controller.InvokeAsync(() => TileCloseRequested?.Invoke(index));
+                window.TileHovered += index => controller.InvokeAsync(() => TileHovered?.Invoke(index));
             }
             catch (Exception ex)
             {
@@ -74,18 +77,21 @@ internal sealed class OverlayHost
     /// <summary>Pure layout math on the monitor's size; safe from any thread.</summary>
     public int MaxColumns(int count, Settings settings) => _window.MaxColumns(count, settings);
 
+    /// <summary>Whole rows visible at once (Page Up / Page Down); pure layout math, safe from any thread.</summary>
+    public int RowsPerPage(int count, Settings settings, int columns) => _window.RowsPerPage(count, settings, columns);
+
     /// <summary>Builds the switcher cloaked; completes once its first frame has been drawn.</summary>
-    public Task PrepareAsync(IReadOnlyList<SwitcherItem> items, int selected, Settings settings, int columns) =>
+    public Task PrepareAsync(IReadOnlyList<SwitcherItem> items, int selected, Settings settings, int columns, string query) =>
         _dispatcher.InvokeAsync(async () =>
         {
             _window.SetCloaked(true);
-            _window.ShowSession(items, selected, settings, columns);
+            _window.ShowSession(items, selected, settings, columns, query);
             await Dispatcher.Yield(DispatcherPriority.Background); // runs after the Render pass
         }).Task.Unwrap();
 
     /// <summary>Rebuilds the tiles of a visible switcher in place (e.g. after a window was closed).</summary>
-    public void Update(IReadOnlyList<SwitcherItem> items, int selected, Settings settings, int columns) =>
-        _dispatcher.InvokeAsync(() => _window.ShowSession(items, selected, settings, columns));
+    public void Update(IReadOnlyList<SwitcherItem> items, int selected, Settings settings, int columns, string query) =>
+        _dispatcher.InvokeAsync(() => _window.ShowSession(items, selected, settings, columns, query));
 
     /// <summary>Hides this monitor's switcher (e.g. its last window was closed) without ending the session.</summary>
     public void Hide() => _dispatcher.InvokeAsync(() =>

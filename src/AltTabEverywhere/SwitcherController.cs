@@ -42,6 +42,13 @@ internal sealed partial class SwitcherController : IDisposable
     private bool _uiShown;              // overlays visible
     private bool _revealRequested;      // show as soon as the build finishes
     private bool _warmingUp;
+    private Settings? _sessionSettings; // the global settings with the session's shortcut's overrides
+    private List<string> _searchStrokes = new(); // what each search keystroke typed (Backspace removes one)
+    private string _query = "";
+    private string _plannedQuery = "";  // the query the current plan was built for
+    private Dictionary<IntPtr, string>? _searchText; // per window, built on the first keystroke of a session
+
+    private List<(Shortcut Shortcut, ShortcutKeys Keys)> _shortcuts = new();
 
     private sealed record PlanEntry(OverlayHost Host, List<SwitcherItem> Items, int Columns, bool MirrorsSelection);
 
@@ -57,20 +64,25 @@ internal sealed partial class SwitcherController : IDisposable
             if (!_active) WarmUpThenTrim(); // rebuild overlays for the new layout before the next Alt+Tab
         };
 
-        _hook.Tab += OnTab;
+        _hook.Shortcut += OnShortcut;
         _hook.Move += Move;
         _hook.MoveRow += MoveRow;
+        _hook.Jump += Jump;
         _hook.CycleStack += CycleStack;
         _hook.CloseSelected += CloseSelected;
-        _hook.AltReleased += OnAltReleased;
+        _hook.ModifiersReleased += OnModifiersReleased;
         _hook.Commit += Commit;
         _hook.Cancel += Cancel;
+        _hook.Number += OnNumber;
+        _hook.SearchType += text => SetQuery(_searchStrokes.Append(text).ToList());
+        _hook.SearchBackspace += () => SetQuery(_searchStrokes.Take(Math.Max(0, _searchStrokes.Count - 1)).ToList());
+        _hook.SearchClear += () => SetQuery(new List<string>());
 
         _store.Changed += ApplySettings;
         ApplySettings();
     }
 
-    private Settings Settings => _settingsOverride ?? _store.Current;
+    private Settings Settings => _settingsOverride ?? _sessionSettings ?? _store.Current;
 
     /// <summary>Only set by --selftest, to exercise other settings without touching the user's file.</summary>
     private Settings? _settingsOverride;
@@ -90,10 +102,24 @@ internal sealed partial class SwitcherController : IDisposable
 
     private void ApplySettings()
     {
-        _hook.StayOpen = Settings.StayOpenAfterAltRelease;
-        _hook.DeleteCloses = Settings.DeleteKeyCloses;
-        _showTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, Settings.ShowDelayMs));
+        var settings = _store.Current;
+        // The shortcut list may change under an open session; close it rather than mix the two.
+        if (_active && !_warmingUp) End();
+        _shortcuts = settings.ValidShortcuts(out var rejected);
+        foreach (string entry in rejected) Log.Info($"shortcut {entry} ignored");
+        _hook.SetBindings(_shortcuts
+            .Select(s => new KeyboardHook.Binding(s.Keys, settings.ForShortcut(s.Shortcut).StayOpenAfterAltRelease))
+            .ToList());
+        Log.Info("shortcuts: " + string.Join(", ", _shortcuts.Select(s => s.Keys.ToString())));
+        _hook.DeleteCloses = settings.DeleteKeyCloses;
+        _hook.TypeToSearch = settings.TypeToSearch;
+        _hook.NumberKeys = settings.NumberKeys != NumberKeys.Off;
+        _showTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, settings.ShowDelayMs));
     }
+
+    /// <summary>The settings for a session opened by shortcut <paramref name="index"/>.</summary>
+    private Settings SettingsFor(int index) =>
+        index >= 0 && index < _shortcuts.Count ? _store.Current.ForShortcut(_shortcuts[index].Shortcut) : _store.Current;
 
     // ---- System events (no polling) ----
 
@@ -128,6 +154,7 @@ internal sealed partial class SwitcherController : IDisposable
     {
         try
         {
+            _sessionSettings = SettingsFor(0);
             if (!_active && LoadWindows() > 0)
             {
                 _warmingUp = true;
@@ -149,6 +176,7 @@ internal sealed partial class SwitcherController : IDisposable
         finally
         {
             _warmingUp = false;
+            if (!_active) _sessionSettings = null;
         }
         // Trim on the usual schedule (2 s later): trimming right away runs while WPF is still
         // tearing down the hidden frame, and the pages come straight back.
@@ -171,26 +199,42 @@ internal sealed partial class SwitcherController : IDisposable
 
     // ---- Session ----
 
-    private void OnTab(bool isFirst, bool reverse)
+    private void OnShortcut(int shortcut, bool isFirst, bool reverse)
     {
         if (!isFirst && _active)
         {
             Move(reverse ? -1 : +1);
             return;
         }
-        BeginSession(reverse, sendMaskKey: true);
+        BeginSession(reverse, sendMaskKey: true, shortcut);
     }
 
-    /// <summary>Lists the session's windows (with exclusions). Returns how many.</summary>
+    /// <summary>Lists the session's windows (with exclusions and the shortcut's scope). Returns how many.</summary>
     private int LoadWindows()
     {
         var settings = Settings;
         var windows = WindowEnumerator.GetSwitchableWindows(settings.VirtualDesktops == VirtualDesktops.All);
         _windows = WindowFilter.ApplyExclusions(windows, settings, WindowEnumerator.ProcessPathOf);
+        if (settings.SessionWindows == WindowScope.CurrentApp) _windows = CurrentAppWindows(_windows);
         return _windows.Count;
     }
 
-    private void BeginSession(bool reverse, bool sendMaskKey)
+    /// <summary>The windows of the app that had focus; none if focus wasn't on a listed window.</summary>
+    private List<WindowInfo> CurrentAppWindows(List<WindowInfo> windows)
+    {
+        var focused = windows.FirstOrDefault(w => w.Handle == _originalForeground);
+        if (focused is null)
+        {
+            // Focus may be on a dialog or other owned window: use the window that owns it.
+            IntPtr owner = Native.GetAncestor(_originalForeground, Native.GA_ROOTOWNER);
+            focused = windows.FirstOrDefault(w => w.Handle == owner);
+        }
+        if (focused is null) return new List<WindowInfo>();
+        string app = WindowEnumerator.AppKey(focused);
+        return windows.Where(w => string.Equals(WindowEnumerator.AppKey(w), app, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private void BeginSession(bool reverse, bool sendMaskKey, int shortcut = 0)
     {
         try
         {
@@ -199,6 +243,9 @@ internal sealed partial class SwitcherController : IDisposable
                 _warmingUp = false; // a real Alt+Tab arrived during warm-up: drop the warm-up session
                 End();
             }
+            _sessionSettings = SettingsFor(shortcut);
+            _searchStrokes = new List<string>();
+            _query = _plannedQuery = "";
             _trimmer.Cancel();
             if (sendMaskKey) WindowActivator.SendMenuMaskKey();
             _timing?.Mark("begin");
@@ -206,6 +253,7 @@ internal sealed partial class SwitcherController : IDisposable
             if (LoadWindows() == 0)
             {
                 _hook.EndSession();
+                _sessionSettings = null;
                 return;
             }
             _timing?.Mark("windows listed");
@@ -259,7 +307,7 @@ internal sealed partial class SwitcherController : IDisposable
         if (settings.ListWindowsFrom == ListWindowsFrom.AllMonitors)
         {
             // One list and one grid for every monitor: as many columns as the most cramped one fits.
-            var items = Group(_windows);
+            var items = Search(Group(_windows));
             int columns = candidates.Min(o => o.MaxColumns(items.Count, settings));
             plan.AddRange(candidates.Select(o => new PlanEntry(o, items, columns, MirrorsSelection: true)));
         }
@@ -267,16 +315,19 @@ internal sealed partial class SwitcherController : IDisposable
         {
             foreach (var host in candidates)
             {
-                var items = Group(WindowFilter.ForMonitor(_windows, ListWindowsFrom.ThisMonitor, host.Monitor.Handle));
+                var own = WindowFilter.ForMonitor(_windows, ListWindowsFrom.ThisMonitor, host.Monitor.Handle);
                 // A monitor with no windows of its own: the focus monitor falls back to every window
                 // (so Alt+Tab still works), the others simply don't show a switcher.
-                if (items.Count == 0 && host == focus) items = Group(_windows);
-                if (items.Count == 0) continue;
+                if (own.Count == 0 && host == focus) own = _windows;
+                var items = Search(Group(own));
+                // While searching, the focus monitor stays up (showing "no match") so typing can continue.
+                if (items.Count == 0 && host != focus) continue;
                 plan.Add(new PlanEntry(host, items, host.MaxColumns(items.Count, settings), MirrorsSelection: host == focus));
             }
         }
 
         _plan = plan;
+        _plannedQuery = _query;
         var focusEntry = plan.FirstOrDefault(p => p.Host == focus) ?? plan.FirstOrDefault();
         _focusOverlay = focusEntry?.Host;
         _items = focusEntry?.Items ?? new List<SwitcherItem>();
@@ -285,6 +336,53 @@ internal sealed partial class SwitcherController : IDisposable
 
     private List<SwitcherItem> Group(IReadOnlyList<WindowInfo> windows) =>
         WindowGrouping.Build(windows, Settings.GroupWindows, WindowEnumerator.AppKey);
+
+    private List<SwitcherItem> Search(List<SwitcherItem> items) =>
+        _query.Length == 0 ? items : WindowSearch.Filter(items, _query, Settings.SearchMode, SearchTextOf);
+
+    /// <summary>Title plus app name. App names need a process lookup, so they're only built once someone types.</summary>
+    private string SearchTextOf(WindowInfo window)
+    {
+        _searchText ??= new Dictionary<IntPtr, string>();
+        if (!_searchText.TryGetValue(window.Handle, out string? text))
+        {
+            text = window.Title + " " + WindowSearch.AppName(window.AppUserModelId, WindowEnumerator.ProcessPathOf(window));
+            _searchText[window.Handle] = text;
+        }
+        return text;
+    }
+
+    /// <summary>The search changed (typing, Backspace, Esc): re-filter every switcher.</summary>
+    private void SetQuery(List<string> strokes)
+    {
+        if (!_active) return;
+        string query = string.Concat(strokes);
+        if (query.Length > 200) return;  // nobody types that much; don't let a stuck key grow it forever
+        _searchStrokes = strokes;
+        _query = query;
+        if (!_uiShown) RevealUi();       // typing before the switcher appeared: show it now
+        if (!_uiPrepared) return;        // PrepareUi applies the query when the build finishes
+        Replan(resetSelection: true);
+    }
+
+    /// <summary>
+    /// Re-plans the session (after a search change or a closed window) and updates every switcher
+    /// in place: monitors that no longer list anything hide, monitors that do again reappear.
+    /// </summary>
+    private void Replan(bool resetSelection)
+    {
+        var previous = _plan;
+        PlanSession(keepFocus: _focusOverlay);
+        _selected = resetSelection ? 0 : Math.Clamp(_selected, 0, Math.Max(0, _items.Count - 1));
+        var settings = Settings;
+        foreach (var gone in previous.Where(p => _plan.All(n => n.Host != p.Host))) gone.Host.Hide();
+        foreach (var entry in _plan)
+        {
+            entry.Host.Update(entry.Items, entry.MirrorsSelection ? _selected : -1, settings, entry.Columns, _query);
+            // A monitor coming back mid-session may still be cloaked from an earlier build.
+            if (_uiShown && previous.All(p => p.Host != entry.Host)) entry.Host.Reveal();
+        }
+    }
 
     /// <summary>Builds every planned overlay in parallel (each on its own thread), cloaked.</summary>
     private async void PrepareUi()
@@ -298,12 +396,14 @@ internal sealed partial class SwitcherController : IDisposable
             var settings = Settings;
             var plan = _plan;
             int selected = _selected;
-            await Task.WhenAll(plan.Select(p => p.Host.PrepareAsync(p.Items, p.MirrorsSelection ? selected : -1, settings, p.Columns)));
+            string query = _plannedQuery;
+            await Task.WhenAll(plan.Select(p => p.Host.PrepareAsync(p.Items, p.MirrorsSelection ? selected : -1, settings, p.Columns, query)));
             _timing?.Mark("overlays built and drawn");
 
             if (session != _sessionId || !_active) return; // session ended meanwhile; End() hid them
             _uiPrepared = true;
-            if (_selected != selected) Select(_selected); // selection moved while building
+            if (_query != query) Replan(resetSelection: true);    // typed while building
+            else if (_selected != selected) Select(_selected);    // selection moved while building
             if (_revealRequested) RevealUi();
         }
         catch (Exception ex)
@@ -365,6 +465,7 @@ internal sealed partial class SwitcherController : IDisposable
             var overlay = new OverlayHost(monitor, _dispatcher);
             overlay.TileClicked += index => OnTileClicked(overlay, index);
             overlay.TileCloseRequested += index => OnTileCloseRequested(overlay, index);
+            overlay.TileHovered += index => OnTileHovered(overlay, index);
             overlay.Deactivated += OnOverlayDeactivated;
             _overlays.Add(overlay);
         }
@@ -412,6 +513,12 @@ internal sealed partial class SwitcherController : IDisposable
         if (_active && ItemAt(host, index) is { } item) CloseWindow(item.Shown.Handle);
     }
 
+    /// <summary>hoverSelects: the mouse moved onto a tile of the keyboard-driven switcher.</summary>
+    private void OnTileHovered(OverlayHost host, int index)
+    {
+        if (_active && host == _focusOverlay && index != _selected && index < _items.Count) Select(index);
+    }
+
     /// <summary>Delete key: close the selected window.</summary>
     private void CloseSelected()
     {
@@ -434,14 +541,7 @@ internal sealed partial class SwitcherController : IDisposable
             End();
             return;
         }
-
-        var previous = _plan;
-        PlanSession(keepFocus: _focusOverlay);
-        _selected = Math.Clamp(_selected, 0, Math.Max(0, _items.Count - 1));
-        var settings = Settings;
-        foreach (var gone in previous.Where(p => _plan.All(n => n.Host != p.Host))) gone.Host.Hide();
-        foreach (var entry in _plan) entry.Host.Update(entry.Items, entry.MirrorsSelection ? _selected : -1, settings, entry.Columns);
-        if (_items.Count == 0) End();
+        Replan(resetSelection: false);
     }
 
     /// <summary>The user clicked outside the switcher: close it (mainly for stay-open mode).</summary>
@@ -461,6 +561,35 @@ internal sealed partial class SwitcherController : IDisposable
     private void Move(int delta) => Select(GridNavigation.Step(_selected, delta, _items.Count));
 
     private void MoveRow(int delta) => Select(GridNavigation.Row(_selected, delta, _items.Count, _columns));
+
+    private void Jump(JumpKey key)
+    {
+        if (!_active || _items.Count == 0) return;
+        int rows = _focusOverlay?.RowsPerPage(_items.Count, Settings, _columns) ?? 1;
+        Select(key switch
+        {
+            JumpKey.Home => 0,
+            JumpKey.End => _items.Count - 1,
+            JumpKey.PageUp => GridNavigation.Page(_selected, -1, _items.Count, _columns, rows),
+            _ => GridNavigation.Page(_selected, +1, _items.Count, _columns, rows),
+        });
+    }
+
+    /// <summary>1–9: select or switch to that tile.</summary>
+    private void OnNumber(int number)
+    {
+        if (!_active || number < 1 || number > _items.Count) return;
+        if (Settings.NumberKeys == NumberKeys.Switch)
+        {
+            _selected = number - 1;
+            Commit();
+        }
+        else
+        {
+            Select(number - 1);
+            if (!_uiShown) RevealUi();
+        }
+    }
 
     private void Select(int index)
     {
@@ -482,7 +611,7 @@ internal sealed partial class SwitcherController : IDisposable
         if (!_uiShown) RevealUi(); // pressed before the switcher appeared: show it now
     }
 
-    private void OnAltReleased()
+    private void OnModifiersReleased()
     {
         // Stay-open mode only kicks in once the switcher is visible; a quick tap still switches.
         if (Settings.StayOpenAfterAltRelease && _uiShown) return;
@@ -493,6 +622,8 @@ internal sealed partial class SwitcherController : IDisposable
     {
         if (!_active) return;
         IntPtr target = _selected >= 0 && _selected < _items.Count ? _items[_selected].Shown.Handle : IntPtr.Zero;
+        // Nothing selected (a search with no match): go back where we came from, like Esc.
+        if (target == IntPtr.Zero && _uiShown) target = _originalForeground;
         // Activate before hiding the overlays: while an overlay has focus we're allowed to hand it on.
         WindowActivator.Activate(target);
         End();
@@ -518,6 +649,10 @@ internal sealed partial class SwitcherController : IDisposable
         _showTimer.Stop();
         _hook.EndSession();
         _focusOverlay = null;
+        _sessionSettings = null;
+        _searchStrokes = new List<string>();
+        _query = _plannedQuery = "";
+        _searchText = null;
         var plan = _plan;
         _plan = new List<PlanEntry>();
         if (plan.Count == 0) return;

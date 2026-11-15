@@ -78,4 +78,16 @@ public class TileLayoutTests
         Assert.True(TileLayout.MaxColumns(10, External.W, External.H, Defaults) >=
                     TileLayout.MaxColumns(10, Laptop.W, Laptop.H, Defaults));
     }
+
+    [Theory]
+    [MemberData(nameof(Counts))]
+    public void Rows_per_page_fit_in_the_visible_height(int count)
+    {
+        int columns = SharedColumns(count);
+        int rows = TileLayout.RowsPerPage(count, Laptop.W, Laptop.H, Defaults, columns);
+        double scale = TileLayout.FitScale(count, Laptop.W, Laptop.H, Defaults, columns);
+        Assert.InRange(rows, 1, 100);
+        Assert.True(rows == 1 || rows * TileLayout.OuterHeight(Defaults, scale) <= Laptop.H + 1e-6);
+        Assert.True((rows + 1) * TileLayout.OuterHeight(Defaults, scale) > Laptop.H);
+    }
 }

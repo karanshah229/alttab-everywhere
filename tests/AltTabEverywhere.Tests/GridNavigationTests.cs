@@ -46,5 +46,28 @@ public class GridNavigationTests
     {
         Assert.Equal(0, GridNavigation.Step(0, 1, 0));
         Assert.Equal(0, GridNavigation.Row(0, 1, 0, 4));
+        Assert.Equal(0, GridNavigation.Page(0, 1, 0, 4, 3));
+    }
+
+    // 4 columns, 22 tiles: rows 0..5, the last row has 2 tiles (20, 21).
+    [Theory]
+    [InlineData(1, +1, 2, 9)]    // two rows down, same column
+    [InlineData(9, +1, 2, 17)]
+    [InlineData(17, +1, 2, 21)]  // past the end: last row, same column
+    [InlineData(18, +1, 2, 21)]  // column 2 doesn't exist in the short last row: last tile
+    [InlineData(21, +1, 2, 21)]  // already at the bottom: stays (no wrap)
+    [InlineData(17, -1, 2, 9)]
+    [InlineData(5, -1, 2, 1)]    // stops at the first row, same column
+    [InlineData(2, -1, 2, 2)]    // already at the top: stays
+    [InlineData(0, +1, 100, 20)] // a huge page: last row, same column
+    public void Page_moves_whole_pages_without_wrapping(int from, int delta, int rows, int expected)
+    {
+        Assert.Equal(expected, GridNavigation.Page(from, delta, 22, 4, rows));
+    }
+
+    [Fact]
+    public void Page_with_zero_rows_still_moves_one_row()
+    {
+        Assert.Equal(4, GridNavigation.Page(0, +1, 22, 4, 0));
     }
 }

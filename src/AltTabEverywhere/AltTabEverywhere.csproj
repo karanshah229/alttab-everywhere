@@ -14,7 +14,7 @@
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <RootNamespace>AltTabEverywhere</RootNamespace>
     <AssemblyName>AltTabEverywhere</AssemblyName>
-    <Version>0.4.0</Version>
+    <Version>0.5.0</Version>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Copyright>Copyright (c) 2026 the AltTab Everywhere contributors</Copyright>
     <!-- Always-on app: no background GC thread, and keep the heap small. -->

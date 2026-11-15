@@ -90,6 +90,46 @@ internal sealed partial class SwitcherController
                     if (_items[index].Current != 0) Fail($"cycle back on stack {index}");
                 }
 
+                // Home / End / Page Up / Page Down, checked against the tile positions and the
+                // number of rows the viewport really shows.
+                foreach (var (name, key) in new[] { ("Home", JumpKey.Home), ("End", JumpKey.End), ("PageUp", JumpKey.PageUp), ("PageDown", JumpKey.PageDown) })
+                {
+                    for (int start = 0; start < count; start++)
+                    {
+                        Select(start);
+                        Jump(key);
+                        int selected = _selected;
+                        foreach (var overlay in shown)
+                        {
+                            var (rects, visible, viewport) = overlay.Query(w =>
+                            {
+                                w.UpdateLayout();
+                                return (w.TileRects, w.IsTileFullyVisible(selected), w.ViewportHeight);
+                            });
+                            // A page is as many rows as the keyboard's switcher shows; mirrors on
+                            // smaller screens only have to keep the selection in view.
+                            bool paging = key is JumpKey.PageUp or JumpKey.PageDown;
+                            if (paging && overlay != _focusOverlay)
+                            {
+                                checks++;
+                                if (!visible) Fail($"{count} tiles, {overlay.Monitor.DeviceName}, {name} from {start}: selected tile {selected} not scrolled into view");
+                                continue;
+                            }
+                            checks += 2;
+                            int want = key switch
+                            {
+                                JumpKey.Home => 0,
+                                JumpKey.End => count - 1,
+                                _ => ExpectedPage(rects, start, key == JumpKey.PageDown ? +1 : -1, viewport),
+                            };
+                            if (want != selected)
+                                Fail($"{count} tiles, {overlay.Monitor.DeviceName}, {name} from {start}: got {selected}, screen says {want}");
+                            if (!visible)
+                                Fail($"{count} tiles, {overlay.Monitor.DeviceName}, {name} from {start}: selected tile {selected} not scrolled into view");
+                        }
+                    }
+                }
+
                 foreach (var (name, move, expected) in Directions())
                 {
                     for (int start = 0; start < count; start++)
@@ -144,6 +184,62 @@ internal sealed partial class SwitcherController
             checks++;
             if (!fallbackUsed && _overlays.Count == _plan.Count && listed != all.Count)
                 Fail($"per-monitor: {listed} windows listed across monitors, expected {all.Count}");
+            End();
+
+            // Type to search, the "no match" state, and number keys, on a real session.
+            _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+            _settingsOverride.ListWindowsFrom = ListWindowsFrom.AllMonitors;
+            _settingsOverride.ShowOn = ShowOn.AllMonitors;
+            _settingsOverride.ShowDelayMs = 0;
+            _settingsOverride.NumberKeys = NumberKeys.Select;
+            BeginSession(reverse: false, sendMaskKey: false);
+            await WaitUntilShown();
+            await Settle();
+            int everything = _items.Count;
+            var queries = new List<(string Label, string Query)> { ("no match", "zqxjkvzqxjkv") };
+            // Real words from window titles, so the search has something to find (titles are never logged).
+            foreach (string word in _windows.SelectMany(w => w.Title.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                         .Where(t => t.Length >= 3 && t.All(char.IsLetter)).Distinct().Take(4))
+                queries.Add(($"a {word.Length}-letter title word", word.ToLowerInvariant()));
+            if (queries.Count > 1) queries.Add(("two words", queries[1].Query + " " + queries[1].Query[..2]));
+
+            foreach (var (label, query) in queries)
+            {
+                // Type it one keystroke at a time, as the hook would.
+                SetQuery(new List<string>());
+                foreach (char c in query) SetQuery(_searchStrokes.Append(c.ToString()).ToList());
+                await Settle();
+                int expected = WindowSearch.Filter(Group(_windows), query, Settings.SearchMode, SearchTextOf).Count;
+                checks += 2;
+                if (_items.Count != expected) Fail($"search ({label}): {_items.Count} tiles, expected {expected}");
+                if (_focusOverlay is null || _plan.All(p => p.Host != _focusOverlay)) Fail($"search ({label}): the keyboard's switcher disappeared");
+                foreach (var entry in _plan)
+                {
+                    var (tiles, searchShown, withinCap) = entry.Host.Query(w => (w.TileRects.Count, w.IsSearchBarShown, w.WithinSizeCap()));
+                    checks += 3;
+                    if (tiles != entry.Items.Count) Fail($"search ({label}), {entry.Host.Monitor.DeviceName}: shows {tiles} tiles, expected {entry.Items.Count}");
+                    if (!searchShown) Fail($"search ({label}), {entry.Host.Monitor.DeviceName}: search bar hidden");
+                    if (!withinCap) Fail($"search ({label}), {entry.Host.Monitor.DeviceName}: larger than the size cap");
+                }
+                Log.Info($"selftest: search ({label}): {_items.Count} of {everything} tiles");
+
+                if (_items.Count >= 2)
+                {
+                    OnNumber(2);
+                    checks++;
+                    if (_selected != 1) Fail($"search ({label}): number key 2 selected {_selected}");
+                }
+                OnNumber(_items.Count + 1); // beyond the last tile: ignored
+                checks++;
+                if (!_active) Fail($"search ({label}): a number past the last tile ended the session");
+
+                // Backspace everything: back to the full list, search bar hidden.
+                while (_searchStrokes.Count > 0) SetQuery(_searchStrokes.Take(_searchStrokes.Count - 1).ToList());
+                await Settle();
+                checks += 2;
+                if (_items.Count != everything) Fail($"search ({label}): after clearing, {_items.Count} tiles, expected {everything}");
+                if (_plan.Any(p => p.Host.Query(w => w.IsSearchBarShown))) Fail($"search ({label}): search bar still shown after clearing");
+            }
             End();
             _settingsOverride = null;
         }
@@ -342,6 +438,22 @@ internal sealed partial class SwitcherController
 
         return Enumerable.Range(0, rects.Count)                                // top row: wrap to bottom of column
             .Where(j => SameColumn(rects[j], rects[i])).OrderByDescending(j => rects[j].Y).First();
+    }
+
+    /// <summary>
+    /// Page Up / Down from tile positions: as many rows as fit in the viewport, same column,
+    /// stopping at the first / last row (the last tile when the short last row lacks the column).
+    /// </summary>
+    private static int ExpectedPage(IReadOnlyList<Rect> rects, int i, int delta, double viewportHeight)
+    {
+        var rowTops = rects.Select(r => Math.Round(r.Y)).Distinct().OrderBy(y => y).ToList();
+        double pitch = rowTops.Count > 1 ? rowTops[1] - rowTops[0] : rects[i].Height + 10;
+        int rowsPerPage = Math.Max(1, (int)((viewportHeight + 0.5) / pitch));
+        int row = rowTops.IndexOf(Math.Round(rects[i].Y));
+        int target = Math.Clamp(row + delta * rowsPerPage, 0, rowTops.Count - 1);
+        var hit = Enumerable.Range(0, rects.Count)
+            .Where(j => Math.Round(rects[j].Y) == rowTops[target] && SameColumn(rects[j], rects[i])).ToList();
+        return hit.Count > 0 ? hit[0] : rects.Count - 1;
     }
 
     private static int ColumnsOf(IReadOnlyList<Rect> rects) =>
