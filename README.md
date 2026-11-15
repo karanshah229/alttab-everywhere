@@ -137,6 +137,10 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | `iconSize` | `48` | App icon size in the `"icons"` and `"iconsOnly"` layouts, 16–128. Shrinks with the tiles when there are many windows |
 | `listWidth` | `480` | Row width of the `"list"` layout, 240–1200. Rows never shrink; a long list scrolls |
 | `storeAppIcons` | `true` | Store (UWP) apps show the icon from their app package, as the Start menu does, instead of the generic icon their window reports. Looked up once per app through the shell's Apps folder and cached; only done while a Store app window is open, so it costs nothing otherwise |
+| `minimizedBadge` | `true` | A dash on the tile of a minimized window (it has no live preview) |
+| `adminBadge` | `true` | A shield on the tile of a window running as administrator. Unless this app also runs as administrator, Windows stops it from sending keys to such windows |
+| `notRespondingBadge` | `true` | A warning sign on the tile of a window Windows considers not responding (`IsHungAppWindow`); it may not come forward |
+| `otherDesktopBadge` | `true` | A Task View symbol on the tile of a window from another virtual desktop (they are listed with `virtualDesktops: "all"`) |
 | `theme` | `"system"` | `"system"` follows Windows' light or dark app mode, and changes with it. `"dark"` or `"light"` fixes it |
 | `accentColor` | `"system"` | Selection border. `"system"` uses Windows' accent colour, in the shade Windows uses on that background. Or a colour such as `"#FF8800"` |
 | `backgroundColor` | `""` | A colour such as `"#202020"` replaces the theme's background. Text turns light or dark to suit it |
@@ -187,6 +191,7 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 | Grid and scrolling | One column count for all monitors; 75% × 75% cap | `TileLayout.cs` |
 | App stacks | Grouped by shell app ID, falling back to the executable path | `SwitcherItem.cs` |
 | Store app icons | `SHCreateItemInKnownFolder(FOLDERID_AppsFolder, appId)` and `IShellItemImageFactory::GetImage`, only for `ApplicationFrameWindow` windows | `Interop/AppIcons.cs` |
+| State badges | `IsIconic`, `IsHungAppWindow`, the process token's `TokenElevation` (checked once per process per opening, only while that badge is on), and the DWM cloak for other desktops | `StateBadges.cs`, `Interop/ProcessElevation.cs` |
 | Switch windows | `SetForegroundWindow`, with an `AttachThreadInput` fallback | `WindowActivator.cs` |
 
 ## Resource use
@@ -244,7 +249,7 @@ Results go to the log, and the exit code is 0 if every check passed:
 dotnet run --project src/AltTabEverywhere -- --selftest
 ```
 
-To check the window list against Windows, run `--list`. It writes both lists, the shell list and the fallback filter, to `%LOCALAPPDATA%\AltTabEverywhere\windows.txt`. This file contains window titles.
+To check the window list against Windows, run `--list`. It writes both lists, the shell list (with each window's state: minimized, administrator, not responding, other desktop) and the fallback filter, to `%LOCALAPPDATA%\AltTabEverywhere\windows.txt`. This file contains window titles.
 
 ## Known limitations
 
@@ -259,7 +264,7 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability) and 2 (find windows faster) are done. Next up is **Phase 3: looks and settings**: a settings window, the app's own icon, light/dark themes, layout styles, Store-app icons, state badges, Peek, a "show desktop" tile, and accessibility.
+See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability) and 2 (find windows faster) are done. **Phase 3: looks and settings** is under way: the settings window, the app's own icon, light/dark themes, layout styles, Store-app icons and state badges are done; Peek, a "show desktop" tile and accessibility are next.
 
 ## License
 

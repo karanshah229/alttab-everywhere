@@ -288,7 +288,7 @@ internal sealed class SwitcherWindow : Window
             int number = showNumbers ? SwitcherItem.NumberOf(items, i) : 0;
             var tile = CreateTile(i, _layout, contentWidth, contentHeight, settings.IconSize * contentScale,
                 number > 0 ? number.ToString() : null, items[i].IsBack);
-            Bind(tile, items[i]);
+            Bind(tile, items[i], settings);
             _tiles.Add(tile);
             _panel.Children.Add(tile.Root);
         }
@@ -428,6 +428,14 @@ internal sealed class SwitcherWindow : Window
             TileBadgeClicked?.Invoke(index);
         };
 
+        // State badges (minimized, admin, not responding, other desktop); Bind fills them in.
+        var states = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0),
+        };
+
         // × to close the window; shown only while the mouse is over the tile (not in iconsOnly: no room).
         var close = new Border
         {
@@ -499,8 +507,12 @@ internal sealed class SwitcherWindow : Window
             badge.HorizontalAlignment = HorizontalAlignment.Right;
             badge.VerticalAlignment = VerticalAlignment.Bottom;
             badge.Margin = new Thickness(0);
+            states.HorizontalAlignment = HorizontalAlignment.Right;
+            states.VerticalAlignment = VerticalAlignment.Top;
+            states.Margin = new Thickness(0);
             cell.Children.Add(numberText);
             cell.Children.Add(badge);
+            cell.Children.Add(states);
             thumbHost.Child = cell;
             body = thumbHost;
         }
@@ -519,9 +531,11 @@ internal sealed class SwitcherWindow : Window
             DockPanel.SetDock(icon, Dock.Left);
             DockPanel.SetDock(close, Dock.Right);
             DockPanel.SetDock(badge, Dock.Right);
+            DockPanel.SetDock(states, Dock.Right);
             header.Children.Add(icon);
             header.Children.Add(close);
             header.Children.Add(badge);
+            header.Children.Add(states);
             header.Children.Add(title);
 
             // Fixed width: without it a long title widens its tile and the columns stop lining up.
@@ -570,10 +584,12 @@ internal sealed class SwitcherWindow : Window
         root.MouseEnter += (_, _) => { if (_showCloseButton && !isBack && !iconsOnly) close.Visibility = Visibility.Visible; };
         root.MouseLeave += (_, _) => close.Visibility = Visibility.Collapsed;
 
-        return new Tile(root, thumbHost, icon, title, placeholder, badge, badgeText);
+        return new Tile(root, thumbHost, icon, title, placeholder, badge, badgeText, states);
     }
 
-    private static void Bind(Tile tile, SwitcherItem item)
+    private static readonly FontFamily IconFont = new("Segoe Fluent Icons, Segoe MDL2 Assets");
+
+    private void Bind(Tile tile, SwitcherItem item, Settings settings)
     {
         if (item.IsBack)
         {
@@ -589,7 +605,26 @@ internal sealed class SwitcherWindow : Window
         tile.Title.Text = window.Title;
         tile.Badge.Visibility = item.IsStack ? Visibility.Visible : Visibility.Collapsed;
         tile.BadgeText.Text = $"×{item.Count}";
+        foreach (var state in StateBadges.For(window, settings))
+        {
+            tile.States.Children.Add(new TextBlock
+            {
+                Text = state.Glyph,
+                FontFamily = IconFont,
+                FontSize = 12,
+                Foreground = _theme.DimText,
+                Margin = new Thickness(2, 0, 2, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = state.Label,
+            });
+        }
     }
+
+    /// <summary>For the self-test: the tooltips of tile <paramref name="index"/>'s state badges.</summary>
+    public IReadOnlyList<string> StateBadgeLabels(int index) =>
+        index < 0 || index >= _tiles.Count
+            ? Array.Empty<string>()
+            : _tiles[index].States.Children.OfType<TextBlock>().Select(t => (string)t.ToolTip).ToList();
 
     private void RegisterThumbnail(Tile tile)
     {
@@ -701,8 +736,9 @@ internal sealed class SwitcherWindow : Window
         (Style)System.Windows.Markup.XamlReader.Parse(ScrollBarStyleXaml.Replace("{THUMB}", theme.ScrollThumb));
 
     private sealed class Tile(Border root, Border thumbHost, Image icon, TextBlock title, Image placeholder,
-        Border badge, TextBlock badgeText)
+        Border badge, TextBlock badgeText, StackPanel states)
     {
+        public StackPanel States { get; } = states;
         public Border Root { get; } = root;
         public Border ThumbHost { get; } = thumbHost;
         public Image Icon { get; } = icon;

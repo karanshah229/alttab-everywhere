@@ -198,6 +198,20 @@ internal sealed class Settings
     /// <summary>Store (packaged) apps show their package's icon, as in the Start menu, instead of the window's.</summary>
     public bool StoreAppIcons { get; set; } = true;
 
+    // State badges: small symbols on a tile that explain why a window may behave unexpectedly.
+
+    /// <summary>Badge on minimized windows (they have no live preview).</summary>
+    public bool MinimizedBadge { get; set; } = true;
+
+    /// <summary>Badge on windows running as administrator (this app can't send them keys unless it is too).</summary>
+    public bool AdminBadge { get; set; } = true;
+
+    /// <summary>Badge on windows that are not responding (they may not come forward).</summary>
+    public bool NotRespondingBadge { get; set; } = true;
+
+    /// <summary>Badge on windows on another virtual desktop (listed with virtualDesktops = all).</summary>
+    public bool OtherDesktopBadge { get; set; } = true;
+
     /// <summary>Live DWM thumbnails. When false, tiles show the app icon only.</summary>
     public bool ShowThumbnails { get; set; } = true;
 

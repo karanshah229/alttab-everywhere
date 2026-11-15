@@ -161,6 +161,11 @@ internal static class Native
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool IsIconic(IntPtr hWnd);
 
+    /// <summary>Windows' own "Not responding" test: the window hasn't handled messages for about 5 seconds.</summary>
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsHungAppWindow(IntPtr hWnd);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int GetWindowTextLength(IntPtr hWnd);
 
@@ -199,6 +204,9 @@ internal static class Native
     public static extern IntPtr GetClassLongPtr(IntPtr hWnd, int nIndex);
 
     // ---- Processes ----
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetCurrentProcess();
+
     public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 
     [DllImport("kernel32.dll", SetLastError = true)]

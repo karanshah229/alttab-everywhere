@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Interop;
@@ -11,8 +12,18 @@ namespace AltTabEverywhere;
 
 /// <param name="AppUserModelId">The shell's app ID (null with the fallback filter). Basis for grouping windows by app.</param>
 /// <param name="OnOtherDesktop">On another virtual desktop (only listed with virtualDesktops = all).</param>
+/// <param name="IsElevated">Runs as administrator (only checked when the admin badge is on).</param>
+/// <param name="IsHung">Not responding (only checked when that badge is on).</param>
 internal sealed record WindowInfo(IntPtr Handle, string Title, ImageSource? Icon, IntPtr Monitor, bool IsMinimized,
-    string? AppUserModelId, bool OnOtherDesktop = false);
+    string? AppUserModelId, bool OnOtherDesktop = false, bool IsElevated = false, bool IsHung = false);
+
+/// <summary>What <see cref="WindowEnumerator.GetSwitchableWindows"/> lists and finds out about each window.</summary>
+/// <param name="IncludeOtherDesktops">Also list windows on other virtual desktops.</param>
+/// <param name="PackagedAppIcons">Store apps get their package's icon (storeAppIcons) instead of the window's.</param>
+/// <param name="Elevation">Check whether each window's process runs as administrator.</param>
+/// <param name="Hung">Check whether each window is not responding.</param>
+internal sealed record WindowQuery(bool IncludeOtherDesktops = false, bool PackagedAppIcons = true,
+    bool Elevation = false, bool Hung = false);
 
 /// <summary>Lists the windows that belong in Alt+Tab, in most-recently-used order.</summary>
 internal static class WindowEnumerator
@@ -21,14 +32,15 @@ internal static class WindowEnumerator
     private static readonly Dictionary<string, ImageSource?> ExeIconCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ShellViews Shell = new();
     private static string? _lastSource;
-    private static bool _packagedAppIcons = true;
+    private static WindowQuery _query = new();
+    /// <summary>Elevation per process during one listing (a process's windows share it); emptied after.</summary>
+    private static readonly Dictionary<uint, bool> ElevatedPids = new();
 
-    /// <param name="includeOtherDesktops">Also list windows on other virtual desktops.</param>
-    /// <param name="packagedAppIcons">Store apps get their package's icon (storeAppIcons) instead of the window's.</param>
-    public static List<WindowInfo> GetSwitchableWindows(bool includeOtherDesktops = false, bool packagedAppIcons = true)
+    public static List<WindowInfo> GetSwitchableWindows(WindowQuery? query = null)
     {
         if (HIconCache.Count > 512) HIconCache.Clear();
-        _packagedAppIcons = packagedAppIcons;
+        _query = query ?? new WindowQuery();
+        bool includeOtherDesktops = _query.IncludeOtherDesktops;
 
         // Preferred: the shell's own Alt+Tab list (exact match with Windows). Fallback: window-style
         // heuristics, used if the undocumented interfaces are missing on this Windows build.
@@ -39,7 +51,9 @@ internal static class WindowEnumerator
             Log.Info($"window list source: {source}");
             _lastSource = source;
         }
-        return fromShell ?? FromHeuristics(includeOtherDesktops);
+        var windows = fromShell ?? FromHeuristics(includeOtherDesktops);
+        ElevatedPids.Clear();
+        return windows;
     }
 
     /// <summary>The window's executable path, or null (e.g. protected processes).</summary>
@@ -65,10 +79,16 @@ internal static class WindowEnumerator
     /// <summary>--list: both sources side by side, for checking the filters against Windows' Alt+Tab.</summary>
     public static IEnumerable<string> DescribeSources()
     {
+        _query = new WindowQuery(IncludeOtherDesktops: true, Elevation: true, Hung: true);
         var shell = FromShell(includeOtherDesktops: true);
+        ElevatedPids.Clear();
         yield return shell is null ? "== shell view list: UNAVAILABLE" : $"== shell view list ({shell.Count})";
         foreach (var w in shell ?? new List<WindowInfo>())
-            yield return $"  {w.Title}  [{w.AppUserModelId}]{(w.OnOtherDesktop ? "  (other desktop)" : "")}";
+        {
+            Native.GetWindowThreadProcessId(w.Handle, out uint pid);
+            var states = StateBadges.For(w, new Settings()).Select(b => b.Label.ToLowerInvariant()).ToList();
+            yield return $"  {w.Title}  [{w.AppUserModelId}] pid {pid}{(states.Count > 0 ? "  (" + string.Join(", ", states) + ")" : "")}";
+        }
 
         var heuristic = FromHeuristics(includeOtherDesktops: false);
         yield return $"== heuristic filter ({heuristic.Count})";
@@ -167,11 +187,21 @@ internal static class WindowEnumerator
         return new WindowInfo(
             hwnd,
             title.ToString(),
-            (_packagedAppIcons && AppIcons.IsPackagedAppId(appUserModelId) && AppIcons.IsFrameHosted(hwnd) ? AppIcons.ForAppId(appUserModelId!) : null) ?? GetIcon(hwnd),
+            (_query.PackagedAppIcons && AppIcons.IsPackagedAppId(appUserModelId) && AppIcons.IsFrameHosted(hwnd) ? AppIcons.ForAppId(appUserModelId!) : null) ?? GetIcon(hwnd),
             Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST),
             Native.IsIconic(hwnd),
             appUserModelId,
-            otherDesktop);
+            otherDesktop,
+            _query.Elevation && IsElevated(hwnd),
+            _query.Hung && Native.IsHungAppWindow(hwnd));
+    }
+
+    private static bool IsElevated(IntPtr hwnd)
+    {
+        Native.GetWindowThreadProcessId(hwnd, out uint pid);
+        if (!ElevatedPids.TryGetValue(pid, out bool elevated))
+            ElevatedPids[pid] = elevated = ProcessElevation.IsElevated(pid);
+        return elevated;
     }
 
     private static ImageSource? GetIcon(IntPtr hwnd)

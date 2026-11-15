@@ -230,7 +230,11 @@ internal sealed partial class SwitcherController : IDisposable
     private int LoadWindows()
     {
         var settings = Settings;
-        var windows = WindowEnumerator.GetSwitchableWindows(settings.VirtualDesktops == VirtualDesktops.All, settings.StoreAppIcons);
+        var windows = WindowEnumerator.GetSwitchableWindows(new WindowQuery(
+            IncludeOtherDesktops: settings.VirtualDesktops == VirtualDesktops.All,
+            PackagedAppIcons: settings.StoreAppIcons,
+            Elevation: settings.AdminBadge,
+            Hung: settings.NotRespondingBadge));
         _windows = WindowFilter.ApplyExclusions(windows, settings, WindowEnumerator.ProcessPathOf);
         if (settings.SessionWindows == WindowScope.CurrentApp) _windows = CurrentAppWindows(_windows);
         return _windows.Count;

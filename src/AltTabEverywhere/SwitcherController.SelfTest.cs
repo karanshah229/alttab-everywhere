@@ -208,6 +208,38 @@ internal sealed partial class SwitcherController
                 }
                 End();
             }
+
+            // State badges, in every layout: a window in every state shows all four on every monitor,
+            // a plain one none, and a badge turned off in settings disappears.
+            foreach (var layout in Enum.GetValues<SwitcherLayout>())
+            {
+                layoutTag = $"[{layout}] ";
+                foreach (bool minimizedOn in new[] { true, false })
+                {
+                    _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+                    _settingsOverride.Layout = layout;
+                    _settingsOverride.MinimizedBadge = minimizedOn;
+                    _settingsOverride.AdminBadge = _settingsOverride.NotRespondingBadge = _settingsOverride.OtherDesktopBadge = true;
+                    var troubled = real[0] with { IsMinimized = true, IsElevated = true, IsHung = true, OnOtherDesktop = true };
+                    var plain = real[0] with { IsMinimized = false, IsElevated = false, IsHung = false, OnOtherDesktop = false };
+                    _items = new List<SwitcherItem> { new(new[] { troubled }), new(new[] { plain }) };
+                    _active = true;
+                    _sessionId++;
+                    _selected = 0;
+                    PlanForTest(_items);
+                    await ShowUiAsync();
+                    await Settle();
+                    int want = minimizedOn ? 4 : 3;
+                    foreach (var overlay in _plan.Select(p => p.Host))
+                    {
+                        var (first, second) = overlay.Query(w => (w.StateBadgeLabels(0), w.StateBadgeLabels(1)));
+                        checks += 2;
+                        if (first.Count != want) Fail($"{overlay.Monitor.DeviceName}: {first.Count} state badges, expected {want} ({string.Join(", ", first)})");
+                        if (second.Count != 0) Fail($"{overlay.Monitor.DeviceName}: plain window has {second.Count} state badges");
+                    }
+                    End();
+                }
+            }
             layoutTag = "";
 
             // listWindowsFrom = thisMonitor: each monitor's switcher lists only its own windows.

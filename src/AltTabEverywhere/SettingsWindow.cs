@@ -259,6 +259,10 @@ internal sealed class SettingsWindow : Window
         Number("Icon size", "Large icons and icons only. 16–128.", "iconSize", _s.IconSize, 16, 128);
         Number("List width", "Compact list. 240–1200.", "listWidth", _s.ListWidth, 240, 1200);
         Toggle("Store app icons", "Use the icon from the app package, as in the Start menu.", "storeAppIcons", _s.StoreAppIcons);
+        Toggle("Minimized badge", "A dash on minimized windows.", "minimizedBadge", _s.MinimizedBadge);
+        Toggle("Admin badge", "A shield on windows running as administrator.", "adminBadge", _s.AdminBadge);
+        Toggle("Not responding badge", "A warning sign on frozen windows.", "notRespondingBadge", _s.NotRespondingBadge);
+        Toggle("Other desktop badge", "On windows from another virtual desktop.", "otherDesktopBadge", _s.OtherDesktopBadge);
 
         Section("System");
         Toggle("Start with Windows", "No admin rights needed.", "startWithWindows", _s.StartWithWindows);
