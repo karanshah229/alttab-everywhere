@@ -10,6 +10,8 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Drawn by tools/IconGen. -->
+    <ApplicationIcon>Assets/app.ico</ApplicationIcon>
     <!-- WFO0003 wants DPI set via the WinForms API; the UI is WPF, so the manifest is the right place. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <RootNamespace>AltTabEverywhere</RootNamespace>
@@ -24,6 +26,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="AltTabEverywhere.Tests" />
+    <EmbeddedResource Include="Assets/app.ico" LogicalName="AltTabEverywhere.app.ico" />
   </ItemGroup>
 
 </Project>

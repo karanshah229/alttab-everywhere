@@ -48,3 +48,28 @@ public class InteropTests
         }
     }
 }
+
+public class IconTests
+{
+    [Fact]
+    public void App_icon_is_embedded_with_small_and_large_sizes()
+    {
+        using var stream = typeof(Settings).Assembly.GetManifestResourceStream("AltTabEverywhere.app.ico");
+        Assert.NotNull(stream);
+        var reader = new BinaryReader(stream!);
+        Assert.Equal(0, reader.ReadInt16());
+        Assert.Equal(1, reader.ReadInt16()); // icon
+        int count = reader.ReadInt16();
+        var sizes = new List<int>();
+        for (int i = 0; i < count; i++)
+        {
+            int width = reader.ReadByte();
+            sizes.Add(width == 0 ? 256 : width);
+            reader.ReadBytes(15);
+        }
+        Assert.Contains(16, sizes);
+        Assert.Contains(24, sizes);
+        Assert.Contains(32, sizes);
+        Assert.Contains(256, sizes);
+    }
+}

@@ -40,11 +40,18 @@ internal sealed class TrayIcon : IDisposable
 
         _icon = new Forms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = LoadIcon(),
             Text = "AltTab Everywhere",
             ContextMenuStrip = menu,
             Visible = true,
         };
+    }
+
+    /// <summary>The app icon at the notification area's size for this DPI (16 px at 100%, 24 at 150%...).</summary>
+    internal static System.Drawing.Icon LoadIcon()
+    {
+        using var stream = typeof(TrayIcon).Assembly.GetManifestResourceStream("AltTabEverywhere.app.ico");
+        return stream is null ? System.Drawing.SystemIcons.Application : new System.Drawing.Icon(stream, Forms.SystemInformation.SmallIconSize);
     }
 
     /// <summary>Opens settings.json in the default .json editor, or Notepad if none is associated.</summary>
@@ -63,6 +70,7 @@ internal sealed class TrayIcon : IDisposable
     public void Dispose()
     {
         _icon.Visible = false;
+        _icon.Icon?.Dispose();
         _icon.Dispose();
     }
 }
