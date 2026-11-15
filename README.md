@@ -196,4 +196,8 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): 35 features in six ranked phases. Next up is **Phase 1: daily-driver reliability**: start with Windows, automatic hook recovery, log size cap, close windows from the switcher, app exclusions, a virtual-desktop scope option, and each monitor listing only its own windows.
+See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phase 1 (daily-driver reliability) is done. Next up is **Phase 2: find windows faster**: type to search, several shortcuts each with their own filters, number keys, Home/End/Page Up/Page Down, and hover to select.
+
+## License
+
+[MIT](LICENSE). Use it, change it, ship it; keep the copyright notice.

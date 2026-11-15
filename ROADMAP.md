@@ -40,7 +40,7 @@ Inspiration comes from:
 
 ---
 
-## Phase 1: Daily-driver reliability (done except the licence)
+## Phase 1: Daily-driver reliability (done)
 
 These make it safe to leave running all day, every day. None adds idle work.
 
@@ -54,7 +54,7 @@ These make it safe to leave running all day, every day. None adds idle work.
 | 6 | **Virtual desktops: current only, or all** | Windows, GNOME and KDE all offer this | S | None | Windows, GNOME, KDE |
 | 7 | **Each monitor lists only its own windows** (optional) | The multi-monitor feature people ask for most. KDE calls it "current screen only" | M | None | KDE, DisplayFusion, VistaSwitcher, Windhawk mod |
 | 8 | **"Show on" option: the monitor with the active window** | Completes the existing all / under-mouse choice | S | None | VistaSwitcher, AltTab (macOS) |
-| 9 | **Licence** | Open source by default: without a licence nobody may legally use the code | S | — | — |
+| 9 | **Licence**: MIT | Open source by default: without a licence nobody may legally use the code | S | — | — |
 
 ## Phase 2: Find windows faster
 
