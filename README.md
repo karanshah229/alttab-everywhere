@@ -69,7 +69,7 @@ The switcher takes at most 75% of a monitor's width and 75% of its height. With 
 
 ## Settings
 
-Double-click the tray icon, or right-click it and choose **Settings…**, to open the settings window. Every setting below is there, in tabs (Shortcuts, When and where, Which windows, Finding windows, Closing windows, Appearance, System), and each change is saved and applied straight away. The window uses your `theme` setting (Windows' light or dark mode by default). It runs as its own short-lived process (`AltTabEverywhere.exe --settings`, which you can also pin as a shortcut), so the always-on switcher never holds its memory: closing the window frees all of it. Opening it takes about 1.5 seconds.
+Double-click the tray icon, or right-click it and choose **Settings…**, to open the settings window. Every setting below is there, in tabs (Shortcuts, Behaviour, Filters, Navigation, Closing, Appearance, System), and each change is saved and applied straight away. The Behaviour tab holds the defaults every shortcut uses; a shortcut's **More options** can override them for that shortcut alone. Each tab has **Reset tab to defaults**, and the System tab has **Reset all settings…**. Colours can be typed as `#RRGGBB` or picked from a palette (with **More colours…** for any colour). The window uses the switcher's own colours: its theme, background, text colour and accent. It runs as its own short-lived process (`AltTabEverywhere.exe --settings`, which you can also pin as a shortcut), so the always-on switcher never holds its memory: closing the window frees all of it. Opening it takes about 1.5 seconds.
 
 Settings live in `%APPDATA%\AltTabEverywhere\settings.json`, created with defaults on first run. To edit the file by hand, choose **Edit settings file…** in the tray menu. Changes apply as soon as you save. If the file has a mistake, the switcher keeps your previous settings and writes the error to the log. Comments and trailing commas are allowed. The settings window and the tray toggles change one key at a time and keep every other key as you wrote it, but not comments.
 
@@ -95,7 +95,7 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 |---|---|---|
 | `showDelayMs` | `0` | Wait this long before showing the switcher, so taps shorter than this switch without it appearing. `0` shows it as soon as it's drawn |
 | `showOn` | `"allMonitors"` | Which monitors show a switcher: `"allMonitors"`, `"monitorUnderCursor"`, or `"monitorWithActiveWindow"` (the one with the window that had focus). The keyboard always drives the switcher on the monitor under the mouse, or, with `monitorWithActiveWindow`, on that monitor |
-| `stayOpenAfterAltRelease` | `false` | Keep the switcher open after you release Alt. Choose with Enter or a click, move with Tab or the arrow keys, close with Esc. A quick tap still switches immediately |
+| `stayOpenAfterAltRelease` | `false` | Keep the switcher open after you release the shortcut's modifier keys (Alt for Alt+Tab, Shift and Win for Shift+Win+Tab). Choose with Enter or a click, move with Tab or the arrow keys, close with Esc. A quick tap still switches immediately |
 
 **Which windows are listed**
 

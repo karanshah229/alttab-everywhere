@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -80,8 +81,12 @@ internal sealed class SettingsStore : IDisposable
     /// Changes one key in settings.json (used by tray-menu toggles), keeping every other key as the
     /// user wrote it. Comments in the file are not preserved. The file watcher then reloads it.
     /// </summary>
-    public static void SetValue(string key, System.Text.Json.Nodes.JsonNode? value)
+    public static void SetValue(string key, System.Text.Json.Nodes.JsonNode? value) => SetValues(new[] { (key, value) });
+
+    /// <summary>Like <see cref="SetValue"/> for several keys, written in one save (one reload).</summary>
+    public static void SetValues(IEnumerable<(string Key, System.Text.Json.Nodes.JsonNode? Value)> values)
     {
+        string key = "settings";
         try
         {
             System.Text.Json.Nodes.JsonObject root;
@@ -97,7 +102,11 @@ internal sealed class SettingsStore : IDisposable
             {
                 root = new System.Text.Json.Nodes.JsonObject();
             }
-            root[key] = value;
+            foreach (var (k, value) in values)
+            {
+                key = k;
+                root[k] = value;
+            }
             File.WriteAllText(FilePath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = JsonOptions.Encoder }));
         }
         catch (Exception ex)

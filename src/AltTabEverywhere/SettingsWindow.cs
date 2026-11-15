@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -10,20 +12,45 @@ using System.Windows.Media.Imaging;
 namespace AltTabEverywhere;
 
 /// <summary>
-/// Every setting in settings.json, editable without touching the file. Built in code, created only
-/// in its own process when opened (see <see cref="Launch"/>), so it costs nothing while idle.
+/// Every setting in settings.json, editable without touching the file. Built in code and shown
+/// in its own process (see <see cref="Launch"/>), so it costs the switcher nothing.
 /// Each change is written straight away, one key at a time, so keys edited by hand are kept; the
-/// file watcher then applies it like any other edit.
+/// switcher's file watcher then applies it like any other edit.
 /// </summary>
 internal sealed class SettingsWindow : Window
 {
     public const string WindowTitle = "AltTab Everywhere settings";
 
-    private readonly Settings _s;
-    private readonly TabControl _tabs = new() { Margin = new Thickness(12, 12, 12, 0) };
+    // Shared by the Behaviour tab and the per-shortcut options, so both use the same words.
+    private static readonly (ShowOn, string)[] ShowOnOptions =
+        { (ShowOn.AllMonitors, "All monitors"), (ShowOn.MonitorUnderCursor, "Under the mouse"), (ShowOn.MonitorWithActiveWindow, "With the active window") };
+    private static readonly (ListWindowsFrom, string)[] ListFromOptions =
+        { (ListWindowsFrom.AllMonitors, "All monitors"), (ListWindowsFrom.ThisMonitor, "This monitor") };
+    private static readonly (VirtualDesktops, string)[] DesktopOptions =
+        { (VirtualDesktops.Current, "Current desktop"), (VirtualDesktops.All, "All desktops") };
+    private static readonly (GroupWindows, string)[] GroupOptions =
+        { (GroupWindows.Separate, "One tile per window"), (GroupWindows.Stacked, "One tile per app") };
+
+    // Windows' accent palette, then neutrals (useful for backgrounds and text).
+    private static readonly string[] Palette =
+    {
+        "FFB900", "FF8C00", "F7630C", "CA5010", "DA3B01", "EF6950", "D13438", "FF4343",
+        "E74856", "E81123", "EA005E", "C30052", "E3008C", "BF0077", "C239B3", "9A0089",
+        "0078D4", "0063B1", "8E8CD8", "6B69D6", "8764B8", "744DA9", "B146C2", "881798",
+        "0099BC", "2D7D9A", "00B7C3", "038387", "00B294", "018574", "00CC6A", "10893E",
+        "7A7574", "5D5A58", "68768A", "515C6B", "567C73", "486860", "498205", "107C10",
+        "000000", "1C1C1C", "202020", "2D2D2D", "767676", "C8C8C8", "F3F3F3", "FFFFFF",
+    };
+
+    private Settings _s;
+    private readonly TabControl _tabs = new() { Margin = new Thickness(12, 8, 12, 0), BorderThickness = new Thickness(0), Background = Brushes.Transparent };
+    private readonly List<(StackPanel Page, List<string> Keys)> _pages = new();
     private StackPanel _page = new(); // the tab Build() is filling
-    private readonly StackPanel _shortcutRows = new();
+    private List<string> _pageKeys = new();
+    private StackPanel _shortcutRows = new();
     private readonly List<ShortcutRow> _shortcuts = new();
+    private readonly List<Action> _onThemeChanged = new(); // colour swatches showing the theme's default
+    private Popup? _openPopup;
 
     /// <summary>The settings.json keys this window edits (a test checks every setting is here).</summary>
     internal HashSet<string> EditableKeys { get; } = new();
@@ -58,22 +85,13 @@ internal sealed class SettingsWindow : Window
 
     public SettingsWindow(Settings current)
     {
-        // A copy: edits go to the file, and the reload builds a fresh Settings.
+        // A copy: edits go to the file, and are read back from it.
         _s = SettingsStore.Deserialize(SettingsStore.Serialize(current));
 
-#pragma warning disable WPF0001 // Fluent theme: native light/dark controls, loaded only with this window
-        ThemeMode = current.Theme switch
-        {
-            AppTheme.Dark => System.Windows.ThemeMode.Dark,
-            AppTheme.Light => System.Windows.ThemeMode.Light,
-            _ => System.Windows.ThemeMode.System,
-        };
-#pragma warning restore WPF0001
-
         Title = WindowTitle;
-        Width = 720;
-        Height = 680;
-        MinWidth = 520;
+        Width = 760;
+        Height = 640;
+        MinWidth = 560;
         MinHeight = 400;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         try
@@ -83,9 +101,58 @@ internal sealed class SettingsWindow : Window
         }
         catch (Exception ex) { Log.Info($"settings icon: {ex.Message}"); }
 
-        Build();
+        ApplyWindowTheme();
         Content = Layout();
-        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };
+        Build();
+        // The Fluent theme may set its own (Mica) background when the window is shown; ours wins.
+        Loaded += (_, _) => ApplyWindowTheme();
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Escape) return;
+            if (_openPopup is { IsOpen: true }) _openPopup.IsOpen = false;
+            else Close();
+            e.Handled = true;
+        };
+    }
+
+    // ---------------------------------------------------------------- theme
+
+    /// <summary>
+    /// Uses the switcher's own colours: its background (not Mica, which tints with the wallpaper),
+    /// text colour, light or dark controls, and a custom accent if one is set.
+    /// </summary>
+    private void ApplyWindowTheme()
+    {
+        var theme = Theme.Rebuild(_s); // this process's copy; the switcher builds its own
+#pragma warning disable WPF0001 // Fluent theme: native light/dark controls, loaded only in this process
+        var mode = theme.IsDark ? System.Windows.ThemeMode.Dark : System.Windows.ThemeMode.Light;
+        if (ThemeMode != mode) ThemeMode = mode;
+#pragma warning restore WPF0001
+        Background = theme.Background;
+        Foreground = theme.Text;
+
+        // A custom accent on the checkboxes. The Fluent controls read these per-control keys (the general accent
+        // brushes, and the text box focus line, are resolved inside the theme and stay Windows' accent).
+        string[] fill = { "CheckBoxCheckBackgroundFillChecked", "CheckBoxCheckBackgroundStrokeChecked" };
+        string[] hover = { "CheckBoxCheckBackgroundFillCheckedPointerOver", "CheckBoxCheckBackgroundStrokeCheckedPointerOver" };
+        string[] pressed = { "CheckBoxCheckBackgroundFillCheckedPressed", "CheckBoxCheckBackgroundStrokeCheckedPressed" };
+        string[] onAccent = { "CheckBoxCheckGlyphForeground", "CheckBoxCheckGlyphForegroundPressed" };
+        foreach (var key in fill.Concat(hover).Concat(pressed).Concat(onAccent)) Resources.Remove(key);
+        if (Theme.TryParseColor(_s.AccentColor, out var accent))
+        {
+            foreach (var key in fill) Resources[key] = Frozen(accent);
+            foreach (var key in hover) Resources[key] = Frozen(Color.FromArgb(0xE6, accent.R, accent.G, accent.B));
+            foreach (var key in pressed) Resources[key] = Frozen(Color.FromArgb(0xCC, accent.R, accent.G, accent.B));
+            foreach (var key in onAccent) Resources[key] = Frozen(Theme.Luminance(accent) > 0.6 ? Colors.Black : Colors.White);
+        }
+        foreach (var refresh in _onThemeChanged) refresh();
+    }
+
+    private static SolidColorBrush Frozen(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
     }
 
     // ---------------------------------------------------------------- page
@@ -95,8 +162,8 @@ internal sealed class SettingsWindow : Window
     {
         var note = new TextBlock
         {
-            Text = "Changes are saved and applied straight away. Every option is also in settings.json.",
-            Opacity = 0.75,
+            Text = "Changes are saved straight away.",
+            Opacity = 0.7,
             TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 16, 0),
@@ -104,7 +171,7 @@ internal sealed class SettingsWindow : Window
         var openFile = new Button { Content = "Open settings.json", VerticalAlignment = VerticalAlignment.Center };
         openFile.Click += (_, _) => TrayIcon.OpenSettingsFile();
 
-        var footer = new Grid { Margin = new Thickness(24, 12, 24, 16) };
+        var footer = new Grid { Margin = new Thickness(24, 10, 24, 14) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(openFile, 1);
@@ -121,11 +188,12 @@ internal sealed class SettingsWindow : Window
     private void Build()
     {
         Section("Shortcuts");
-        Note("Each shortcut opens the switcher. Options set to \"Default\" use the values on the other tabs.");
+        Note("Each shortcut opens the switcher. Its options default to the Behaviour tab.");
+        _shortcutRows = new StackPanel();
         _page.Children.Add(_shortcutRows);
-        EditableKeys.Add("shortcuts");
+        Track("shortcuts");
         foreach (var shortcut in _s.Shortcuts) AddShortcutRow(shortcut);
-        var add = new Button { Content = "Add shortcut", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0) };
+        var add = new Button { Content = "Add shortcut", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) };
         add.Click += (_, _) =>
         {
             AddShortcutRow(new Shortcut { Keys = "" });
@@ -133,60 +201,92 @@ internal sealed class SettingsWindow : Window
         };
         _page.Children.Add(add);
 
-        Section("When and where");
-        Choice("Show on", "Which monitors show the switcher.", "showOn", _s.ShowOn,
-            (ShowOn.AllMonitors, "Every monitor"),
-            (ShowOn.MonitorUnderCursor, "The monitor under the mouse"),
-            (ShowOn.MonitorWithActiveWindow, "The monitor with the active window"));
-        Toggle("Stay open after Alt is released", "Pick with Enter, a click or the arrow keys; Esc closes. A quick tap still switches straight away.",
+        Section("Behaviour");
+        Choice("Show on", "Monitors that show the switcher.", "showOn", _s.ShowOn, ShowOnOptions);
+        Toggle("Stay open after releasing the shortcut", "Pick with Enter, a click or the arrows. Esc closes.",
             "stayOpenAfterAltRelease", _s.StayOpenAfterAltRelease);
-        Number("Show delay (ms)", "Wait this long before showing the switcher, so quick taps switch without it appearing. 0–2000.",
-            "showDelayMs", _s.ShowDelayMs, 0, 2000);
+        Number("Show delay (ms)", "Quick taps switch without showing it. 0–2000.", "showDelayMs", _s.ShowDelayMs, 0, 2000);
+        Choice("List windows from", "", "listWindowsFrom", _s.ListWindowsFrom, ListFromOptions);
+        Choice("Virtual desktops", "", "virtualDesktops", _s.VirtualDesktops, DesktopOptions);
+        Choice("Group windows", "Alt+` cycles through a stack.", "groupWindows", _s.GroupWindows, GroupOptions);
 
-        Section("Which windows");
-        Choice("List windows from", "", "listWindowsFrom", _s.ListWindowsFrom,
-            (ListWindowsFrom.AllMonitors, "Every monitor"),
-            (ListWindowsFrom.ThisMonitor, "Only the monitor the switcher is on"));
-        Choice("Virtual desktops", "", "virtualDesktops", _s.VirtualDesktops,
-            (VirtualDesktops.Current, "Current desktop only"),
-            (VirtualDesktops.All, "All desktops"));
-        Choice("Group windows", "Stacked shows one tile per app; Alt+` cycles through its windows.", "groupWindows", _s.GroupWindows,
-            (GroupWindows.Separate, "One tile per window"),
-            (GroupWindows.Stacked, "One tile per app (stacked)"));
-        Lines("Excluded apps", "One per line: an executable name (notepad.exe or notepad), a full path, or an app ID.", "excludedApps", _s.ExcludedApps);
-        Lines("Excluded titles", "One per line. Windows whose title contains any of these (ignoring case) are never listed.", "excludedTitles", _s.ExcludedTitles);
+        Section("Filters");
+        Lines("Excluded apps", "One per line: name, path or app ID.", "excludedApps", _s.ExcludedApps);
+        Lines("Excluded titles", "One per line. Matches part of a title.", "excludedTitles", _s.ExcludedTitles);
 
-        Section("Finding windows");
-        Toggle("Type to search", "Typing while the switcher is open filters the tiles by title and app name.", "typeToSearch", _s.TypeToSearch);
+        Section("Navigation");
+        Toggle("Type to search", "Typing filters the tiles.", "typeToSearch", _s.TypeToSearch);
         Choice("Search mode", "", "searchMode", _s.SearchMode,
             (SearchMode.Fuzzy, "Fuzzy (\"wtm\" finds Windows Terminal)"),
-            (SearchMode.Contains, "Contains (each word as typed)"));
+            (SearchMode.Contains, "Contains each word"));
         Choice("Number keys 1–9", "", "numberKeys", _s.NumberKeys,
             (NumberKeys.Switch, "Switch to that tile"),
             (NumberKeys.Select, "Select that tile"),
-            (NumberKeys.Off, "Off (type them into the search)"));
-        Toggle("Show tile numbers", "Show 1–9 on the first nine tiles.", "showTileNumbers", _s.ShowTileNumbers);
-        Toggle("Hover selects", "Moving the mouse over a tile selects it.", "hoverSelects", _s.HoverSelects);
+            (NumberKeys.Off, "Off (type into the search)"));
+        Toggle("Show tile numbers", "", "showTileNumbers", _s.ShowTileNumbers);
+        Toggle("Hover selects", "Pointing at a tile selects it.", "hoverSelects", _s.HoverSelects);
 
-        Section("Closing windows");
+        Section("Closing");
         Toggle("Delete key closes the selected window", "", "deleteKeyCloses", _s.DeleteKeyCloses);
         Toggle("Middle-click closes a window", "", "middleClickCloses", _s.MiddleClickCloses);
-        Toggle("Show a close button on the tile under the mouse", "", "showCloseButton", _s.ShowCloseButton);
+        Toggle("Close button on hover", "", "showCloseButton", _s.ShowCloseButton);
 
         Section("Appearance");
         Choice("Theme", "", "theme", _s.Theme,
             (AppTheme.System, "Same as Windows"),
             (AppTheme.Dark, "Dark"),
             (AppTheme.Light, "Light"));
-        Colour("Accent colour", "Selection border. Empty uses Windows' accent colour.", "accentColor", _s.AccentColor, emptyValue: "system");
-        Colour("Background colour", "Empty uses the theme's background.", "backgroundColor", _s.BackgroundColor, emptyValue: "");
-        Colour("Text colour", "Empty uses the theme's text colour.", "textColor", _s.TextColor, emptyValue: "");
-        Toggle("Live previews", "Off shows app icons only, which uses less memory.", "showThumbnails", _s.ShowThumbnails);
-        Number("Tile width", "80–600. Tiles shrink a little when there are many windows, then the grid scrolls.", "tileWidth", _s.TileWidth, 80, 600);
+        Colour("Accent colour", "Selection border. Empty: Windows' accent.", "accentColor", _s.AccentColor, "system", t => t.AccentColor);
+        Colour("Background colour", "Empty: theme default.", "backgroundColor", _s.BackgroundColor, "", t => ((SolidColorBrush)t.Background).Color);
+        Colour("Text colour", "Empty: theme default.", "textColor", _s.TextColor, "", t => ((SolidColorBrush)t.Text).Color);
+        Toggle("Live previews", "Off: icons only, less memory.", "showThumbnails", _s.ShowThumbnails);
+        Number("Tile width", "80–600.", "tileWidth", _s.TileWidth, 80, 600);
         Number("Preview height", "50–400.", "thumbnailHeight", _s.ThumbnailHeight, 50, 400);
 
         Section("System");
-        Toggle("Start with Windows", "Per-user startup entry; no admin rights needed.", "startWithWindows", _s.StartWithWindows);
+        Toggle("Start with Windows", "No admin rights needed.", "startWithWindows", _s.StartWithWindows);
+        var resetAll = new Button { Content = "Reset all settings…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0) };
+        resetAll.Click += (_, _) =>
+        {
+            if (MessageBox.Show(this, "Reset every setting to its default?", WindowTitle, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                Reset(EditableKeys.ToList());
+        };
+        _page.Children.Add(resetAll);
+
+        // A "Reset tab" button at the end of each tab, for the keys on that tab.
+        foreach (var (page, keys) in _pages)
+        {
+            var reset = new Button { Content = "Reset tab to defaults", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
+            reset.Click += (_, _) => Reset(keys);
+            page.Children.Add(reset);
+        }
+    }
+
+    /// <summary>Writes the default value of each key, then rebuilds the window from the file.</summary>
+    private void Reset(IReadOnlyCollection<string> keys)
+    {
+        var defaults = (JsonObject)SettingsStore.ToNode(new Settings())!;
+        SettingsStore.SetValues(keys.Select(k => (k, defaults[k]?.DeepClone())).ToList());
+        _s = SettingsStore.LoadOnce();
+
+        int tab = _tabs.SelectedIndex;
+        _tabs.Items.Clear();
+        _pages.Clear();
+        _shortcuts.Clear();
+        _onThemeChanged.Clear();
+        EditableKeys.Clear();
+        Build();
+        _tabs.SelectedIndex = Math.Max(0, tab);
+        ApplyWindowTheme();
+    }
+
+    /// <summary>Saves one key, and keeps this window's copy (and its theme) in step with the file.</summary>
+    private void Save(string key, JsonNode? value)
+    {
+        SettingsStore.SetValue(key, value);
+        _s = SettingsStore.LoadOnce();
+        if (key is "theme" or "accentColor" or "backgroundColor" or "textColor") ApplyWindowTheme();
+        foreach (var row in _shortcuts) row.RefreshDefaults(_s);
     }
 
     // ---------------------------------------------------------------- building blocks
@@ -195,24 +295,37 @@ internal sealed class SettingsWindow : Window
     private void Section(string title)
     {
         _page = new StackPanel { Margin = new Thickness(12, 12, 20, 16) };
+        _pageKeys = new List<string>();
+        _pages.Add((_page, _pageKeys));
         var tab = new TabItem
         {
             Header = title,
-            Content = new ScrollViewer { Content = _page, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+            Content = new ScrollViewer
+            {
+                Content = _page,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Focusable = false, // otherwise pressing Alt shows a focus rectangle round the whole tab
+            },
         };
         AutomationName(tab, title);
         _tabs.Items.Add(tab);
     }
 
+    private void Track(string key)
+    {
+        EditableKeys.Add(key);
+        _pageKeys.Add(key);
+    }
+
     private void Note(string text) => _page.Children.Add(new TextBlock
     {
         Text = text,
-        Opacity = 0.75,
+        Opacity = 0.7,
         TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(0, 0, 0, 6),
+        Margin = new Thickness(0, 0, 0, 10),
     });
 
-    /// <summary>A row: label and description on the left, the control on the right.</summary>
+    /// <summary>A card like Windows Settings: label and description on the left, the control on the right.</summary>
     private void Row(string label, string description, FrameworkElement control)
     {
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 16, 0) };
@@ -222,39 +335,55 @@ internal sealed class SettingsWindow : Window
         control.VerticalAlignment = VerticalAlignment.Center;
         AutomationName(control, label);
 
-        var grid = new Grid { Margin = new Thickness(0, 6, 0, 6) };
+        var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(control, 1);
         grid.Children.Add(text);
         grid.Children.Add(control);
-        _page.Children.Add(grid);
+        _page.Children.Add(Card(grid, new Thickness(16, 10, 16, 10)));
+    }
+
+    private static Border Card(UIElement child, Thickness padding)
+    {
+        var card = new Border
+        {
+            Child = child,
+            Padding = padding,
+            Margin = new Thickness(0, 0, 0, 4),
+            CornerRadius = new CornerRadius(6),
+            BorderThickness = new Thickness(1),
+            MinHeight = 56,
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "CardBackgroundFillColorDefaultBrush");
+        card.SetResourceReference(Border.BorderBrushProperty, "CardStrokeColorDefaultBrush");
+        return card;
     }
 
     private void Toggle(string label, string description, string key, bool value)
     {
-        EditableKeys.Add(key);
+        Track(key);
         var box = new CheckBox { IsChecked = value, MinWidth = 0 };
         // Checked/Unchecked, not Click: screen readers toggle through UI Automation, which raises no Click.
-        box.Checked += (_, _) => SettingsStore.SetValue(key, true);
-        box.Unchecked += (_, _) => SettingsStore.SetValue(key, false);
+        box.Checked += (_, _) => Save(key, true);
+        box.Unchecked += (_, _) => Save(key, false);
         Row(label, description, box);
     }
 
     private void Choice<T>(string label, string description, string key, T value, params (T Value, string Text)[] options) where T : struct, Enum
     {
-        EditableKeys.Add(key);
+        Track(key);
         var combo = ComboFor(value, options);
         combo.SelectionChanged += (_, _) =>
         {
-            if (combo.SelectedItem is ComboBoxItem { Tag: T chosen }) SettingsStore.SetValue(key, SettingsStore.ToNode(chosen));
+            if (combo.SelectedItem is ComboBoxItem { Tag: T chosen }) Save(key, SettingsStore.ToNode(chosen));
         };
         Row(label, description, combo);
     }
 
     private static ComboBox ComboFor<T>(T value, (T Value, string Text)[] options) where T : struct, Enum
     {
-        var combo = new ComboBox { MinWidth = 260 };
+        var combo = new ComboBox { MinWidth = 240 };
         foreach (var (option, text) in options)
         {
             var item = new ComboBoxItem { Content = text, Tag = option };
@@ -266,7 +395,7 @@ internal sealed class SettingsWindow : Window
 
     private void Number(string label, string description, string key, double value, double min, double max)
     {
-        EditableKeys.Add(key);
+        Track(key);
         var box = new TextBox { Text = value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture), Width = 100, TextAlignment = TextAlignment.Right };
         void Commit()
         {
@@ -276,7 +405,7 @@ internal sealed class SettingsWindow : Window
                 box.Text = number.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
                 if (Math.Abs(number - value) < 0.001) return;
                 value = number;
-                SettingsStore.SetValue(key, number);
+                Save(key, number);
             }
             else box.Text = value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
         }
@@ -285,42 +414,105 @@ internal sealed class SettingsWindow : Window
         Row(label, description, box);
     }
 
-    /// <summary>A "#RRGGBB" box with a swatch; empty means "use the theme" (<paramref name="emptyValue"/> is written).</summary>
-    private void Colour(string label, string description, string key, string value, string emptyValue)
+    /// <summary>
+    /// A colour: a swatch that opens a palette, and a hex box. Empty means "use the theme"
+    /// (<paramref name="emptyValue"/> is written); the swatch then shows the theme's colour.
+    /// </summary>
+    private void Colour(string label, string description, string key, string value, string emptyValue, Func<Theme, Color> themeColour)
     {
-        EditableKeys.Add(key);
+        Track(key);
         string Shown(string v) => v.Equals("system", StringComparison.OrdinalIgnoreCase) ? "" : v;
-        var box = new TextBox { Text = Shown(value), Width = 100 };
-        var swatch = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 8, 0) };
-        swatch.SetResourceReference(Border.BorderBrushProperty, SystemColors.ControlDarkBrushKey);
-        void Paint() => swatch.Background = Theme.TryParseColor(box.Text, out var c) ? new SolidColorBrush(c) : Brushes.Transparent;
+        var box = new TextBox { Text = Shown(value), Width = 110 };
+        AutomationName(box, label);
+        var error = new TextBlock { Text = "Use #RRGGBB", Foreground = Brushes.IndianRed, FontSize = 12, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+        var swatch = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(1) };
+        swatch.SetResourceReference(Border.BorderBrushProperty, "ControlStrokeColorDefaultBrush");
+        var pick = new Button { Content = swatch, Padding = new Thickness(5), MinWidth = 0, MinHeight = 0, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Pick a colour" };
+        AutomationName(pick, $"Pick {label.ToLowerInvariant()}");
+
+        void Paint() => swatch.Background = new SolidColorBrush(
+            Theme.TryParseColor(box.Text, out var c) ? c : themeColour(Theme.Current));
         Paint();
+        _onThemeChanged.Add(Paint);
+
         string last = Shown(value);
-        void Commit()
+        void Commit(string text)
         {
-            string text = box.Text.Trim();
-            if (text.Length > 0 && !Theme.TryParseColor(text, out _)) { box.Text = last; Paint(); return; }
+            text = text.Trim();
+            bool ok = text.Length == 0 || Theme.TryParseColor(text, out _);
+            error.Visibility = ok ? Visibility.Collapsed : Visibility.Visible;
+            if (!ok) return; // keep what was typed so it can be fixed
             if (text.Length > 0 && !text.StartsWith('#')) text = "#" + text;
+            text = text.ToUpperInvariant();
             box.Text = text;
             Paint();
             if (text == last) return;
             last = text;
-            SettingsStore.SetValue(key, text.Length == 0 ? emptyValue : text.ToUpperInvariant());
+            Save(key, text.Length == 0 ? emptyValue : text);
         }
-        box.TextChanged += (_, _) => Paint();
-        box.LostKeyboardFocus += (_, _) => Commit();
-        box.KeyDown += (_, e) => { if (e.Key == Key.Enter) Commit(); };
+        box.TextChanged += (_, _) => { if (Theme.TryParseColor(box.Text, out _)) { error.Visibility = Visibility.Collapsed; Paint(); } };
+        box.LostKeyboardFocus += (_, _) => Commit(box.Text);
+        box.KeyDown += (_, e) => { if (e.Key == Key.Enter) Commit(box.Text); };
+        pick.Click += (_, _) => ShowPalette(pick, box.Text, Commit);
+
         var panel = new StackPanel { Orientation = Orientation.Horizontal };
-        panel.Children.Add(swatch);
+        panel.Children.Add(error);
+        panel.Children.Add(pick);
         panel.Children.Add(box);
-        AutomationName(box, label);
         Row(label, description, panel);
+    }
+
+    /// <summary>A palette under <paramref name="anchor"/>; picking writes the colour through <paramref name="choose"/> ("" = default).</summary>
+    private void ShowPalette(FrameworkElement anchor, string current, Action<string> choose)
+    {
+        var popup = new Popup { PlacementTarget = anchor, Placement = PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true, VerticalOffset = 4 };
+        var grid = new UniformGrid { Columns = 8 };
+        foreach (var hex in Palette)
+        {
+            var colour = (Color)ColorConverter.ConvertFromString("#" + hex);
+            var cell = new Button
+            {
+                Content = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(3), Background = Frozen(colour) },
+                Padding = new Thickness(3),
+                Margin = new Thickness(1),
+                MinWidth = 0,
+                MinHeight = 0,
+                ToolTip = "#" + hex,
+            };
+            AutomationName(cell, "#" + hex);
+            cell.Click += (_, _) => { popup.IsOpen = false; choose("#" + hex); };
+            grid.Children.Add(cell);
+        }
+
+        var more = new Button { Content = "More colours…", Margin = new Thickness(0, 0, 8, 0) };
+        more.Click += (_, _) =>
+        {
+            popup.IsOpen = false;
+            using var dialog = new System.Windows.Forms.ColorDialog { FullOpen = true, AnyColor = true };
+            if (Theme.TryParseColor(current, out var c)) dialog.Color = System.Drawing.Color.FromArgb(c.R, c.G, c.B);
+            if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                choose($"#{dialog.Color.R:X2}{dialog.Color.G:X2}{dialog.Color.B:X2}");
+        };
+        var useDefault = new Button { Content = "Default" };
+        useDefault.Click += (_, _) => { popup.IsOpen = false; choose(""); };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        buttons.Children.Add(more);
+        buttons.Children.Add(useDefault);
+
+        var body = new StackPanel();
+        body.Children.Add(grid);
+        body.Children.Add(buttons);
+        var frame = new Border { Child = body, Padding = new Thickness(8), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Background = Background };
+        frame.SetResourceReference(Border.BorderBrushProperty, "SurfaceStrokeColorFlyoutBrush");
+        popup.Child = frame;
+        _openPopup = popup;
+        popup.IsOpen = true;
     }
 
     /// <summary>A list setting edited as one entry per line.</summary>
     private void Lines(string label, string description, string key, List<string> value)
     {
-        EditableKeys.Add(key);
+        Track(key);
         var box = new TextBox
         {
             Text = string.Join(Environment.NewLine, value),
@@ -328,6 +520,7 @@ internal sealed class SettingsWindow : Window
             TextWrapping = TextWrapping.NoWrap,
             MinHeight = 64,
             Width = 260,
+            Margin = new Thickness(0, 4, 0, 4),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
         string last = box.Text;
@@ -336,7 +529,7 @@ internal sealed class SettingsWindow : Window
             if (box.Text == last) return;
             last = box.Text;
             var lines = box.Text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
-            SettingsStore.SetValue(key, SettingsStore.ToNode(lines));
+            Save(key, SettingsStore.ToNode(lines));
         };
         Row(label, description, box);
     }
@@ -348,7 +541,7 @@ internal sealed class SettingsWindow : Window
 
     private void AddShortcutRow(Shortcut shortcut)
     {
-        var row = new ShortcutRow(shortcut, SaveShortcuts, RemoveShortcut);
+        var row = new ShortcutRow(shortcut, _s, SaveShortcuts, RemoveShortcut);
         _shortcuts.Add(row);
         _shortcutRows.Children.Add(row.Root);
     }
@@ -364,10 +557,10 @@ internal sealed class SettingsWindow : Window
     private void SaveShortcuts()
     {
         var list = _shortcuts.Where(r => r.IsValid).Select(r => r.Shortcut).ToList();
-        SettingsStore.SetValue("shortcuts", SettingsStore.ToNode(list));
+        Save("shortcuts", SettingsStore.ToNode(list));
     }
 
-    /// <summary>One shortcut: its keys, which windows it lists, and optional overrides.</summary>
+    /// <summary>One shortcut: its keys, which windows it lists, and options that override the Behaviour tab.</summary>
     private sealed class ShortcutRow
     {
         public Shortcut Shortcut { get; }
@@ -377,15 +570,16 @@ internal sealed class SettingsWindow : Window
 
         private readonly TextBlock _error;
         private readonly Action _save;
+        private readonly List<Action<Settings>> _defaultLabels = new();
 
-        public ShortcutRow(Shortcut shortcut, Action save, Action<ShortcutRow> remove)
+        public ShortcutRow(Shortcut shortcut, Settings defaults, Action save, Action<ShortcutRow> remove)
         {
             Shortcut = shortcut;
             _save = save;
 
             Keys = new TextBox { Text = shortcut.Keys, Width = 160 };
             AutomationName(Keys, "Keys");
-            _error = new TextBlock { Text = "Not a valid key combination", Foreground = Brushes.IndianRed, FontSize = 12, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
+            _error = new TextBlock { Text = "Not a valid key combination", Foreground = Brushes.IndianRed, FontSize = 12, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 6, 0, 0) };
             string last = shortcut.Keys;
             void CommitKeys()
             {
@@ -403,45 +597,81 @@ internal sealed class SettingsWindow : Window
             Keys.KeyDown += (_, e) => { if (e.Key == Key.Enter) CommitKeys(); };
 
             var windows = ComboFor(shortcut.Windows, new[] { (WindowScope.All, "All windows"), (WindowScope.CurrentApp, "Current app's windows") });
-            windows.MinWidth = 190;
-            AutomationName(windows, "Windows");
+            windows.MinWidth = 200;
+            AutomationName(windows, "Lists");
             windows.SelectionChanged += (_, _) =>
             {
                 if (windows.SelectedItem is ComboBoxItem { Tag: WindowScope scope }) { Shortcut.Windows = scope; _save(); }
             };
 
-            var removeButton = new Button { Content = "Remove", Margin = new Thickness(8, 0, 0, 0) };
+            var removeButton = new Button { Content = "Remove", VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Right };
             removeButton.Click += (_, _) => remove(this);
 
-            var top = new StackPanel { Orientation = Orientation.Horizontal };
+            var top = new Grid();
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var lists = Labelled("Lists", windows);
+            Grid.SetColumn(lists, 1);
+            Grid.SetColumn(removeButton, 2);
             top.Children.Add(Labelled("Keys", Keys));
-            top.Children.Add(Labelled("Lists", windows));
-            top.Children.Add(Labelled("", removeButton));
+            top.Children.Add(lists);
+            top.Children.Add(removeButton);
 
-            var overrides = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
-            overrides.Children.Add(Override("Show on", shortcut.ShowOn, v => Shortcut.ShowOn = v,
-                (ShowOn.AllMonitors, "Every monitor"), (ShowOn.MonitorUnderCursor, "Under the mouse"), (ShowOn.MonitorWithActiveWindow, "Active window's")));
-            overrides.Children.Add(Override("List from", shortcut.ListWindowsFrom, v => Shortcut.ListWindowsFrom = v,
-                (ListWindowsFrom.AllMonitors, "Every monitor"), (ListWindowsFrom.ThisMonitor, "This monitor")));
-            overrides.Children.Add(Override("Desktops", shortcut.VirtualDesktops, v => Shortcut.VirtualDesktops = v,
-                (VirtualDesktops.Current, "Current"), (VirtualDesktops.All, "All")));
-            overrides.Children.Add(Override("Group", shortcut.GroupWindows, v => Shortcut.GroupWindows = v,
-                (GroupWindows.Separate, "Separate"), (GroupWindows.Stacked, "Stacked")));
+            var overrides = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+            overrides.Children.Add(Override("Show on", shortcut.ShowOn, v => Shortcut.ShowOn = v, s => s.ShowOn, ShowOnOptions));
+            overrides.Children.Add(Override("List windows from", shortcut.ListWindowsFrom, v => Shortcut.ListWindowsFrom = v, s => s.ListWindowsFrom, ListFromOptions));
+            overrides.Children.Add(Override("Virtual desktops", shortcut.VirtualDesktops, v => Shortcut.VirtualDesktops = v, s => s.VirtualDesktops, DesktopOptions));
+            overrides.Children.Add(Override("Group windows", shortcut.GroupWindows, v => Shortcut.GroupWindows = v, s => s.GroupWindows, GroupOptions));
             overrides.Children.Add(StayOpenOverride());
+            RefreshDefaults(defaults);
+
+            bool anyOverride = shortcut.ShowOn != null || shortcut.ListWindowsFrom != null || shortcut.VirtualDesktops != null
+                || shortcut.GroupWindows != null || shortcut.StayOpenAfterAltRelease != null;
+            overrides.Visibility = anyOverride ? Visibility.Visible : Visibility.Collapsed;
+
+            // A flat text toggle rather than an Expander, which would draw a second card inside this one.
+            var moreText = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
+            var chevron = new TextBlock { FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 10, Margin = new Thickness(8, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            var moreContent = new StackPanel { Orientation = Orientation.Horizontal };
+            moreContent.Children.Add(moreText);
+            moreContent.Children.Add(chevron);
+            var more = new Button
+            {
+                Content = moreContent,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(6, 4, 6, 4),
+                Margin = new Thickness(-6, 8, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+            };
+            void ShowState()
+            {
+                bool open = overrides.Visibility == Visibility.Visible;
+                moreText.Text = open ? "Fewer options" : "More options";
+                chevron.Text = open ? "" : ""; // chevron up / down
+                AutomationName(more, moreText.Text);
+            }
+            ShowState();
+            more.Click += (_, _) =>
+            {
+                overrides.Visibility = overrides.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+                ShowState();
+            };
 
             var body = new StackPanel();
             body.Children.Add(top);
             body.Children.Add(_error);
+            body.Children.Add(more);
             body.Children.Add(overrides);
-            Root = new Border
-            {
-                Padding = new Thickness(12),
-                Margin = new Thickness(0, 6, 0, 0),
-                CornerRadius = new CornerRadius(6),
-                BorderThickness = new Thickness(1),
-                Child = body,
-            };
-            Root.SetResourceReference(Border.BorderBrushProperty, SystemColors.ControlDarkBrushKey);
+            Root = Card(body, new Thickness(16, 12, 16, 12));
+            Root.Margin = new Thickness(0, 0, 0, 8);
+        }
+
+        /// <summary>Updates each "Default (…)" entry to the Behaviour tab's current value.</summary>
+        public void RefreshDefaults(Settings defaults)
+        {
+            foreach (var refresh in _defaultLabels) refresh(defaults);
         }
 
         private static FrameworkElement Labelled(string label, FrameworkElement control)
@@ -452,12 +682,13 @@ internal sealed class SettingsWindow : Window
             return panel;
         }
 
-        /// <summary>A combo with "Default" (null: use the global setting) plus each value.</summary>
-        private FrameworkElement Override<T>(string label, T? value, Action<T?> set, params (T Value, string Text)[] options) where T : struct, Enum
+        /// <summary>A combo with "Default (…)" (null: use the Behaviour tab) plus each value.</summary>
+        private FrameworkElement Override<T>(string label, T? value, Action<T?> set, Func<Settings, T> globalValue, (T Value, string Text)[] options) where T : struct, Enum
         {
-            var combo = new ComboBox { MinWidth = 140 };
+            var combo = new ComboBox { MinWidth = 200 };
             AutomationName(combo, label);
-            var defaultItem = new ComboBoxItem { Content = "Default", Tag = null };
+            var defaultItem = new ComboBoxItem { Tag = null };
+            _defaultLabels.Add(s => defaultItem.Content = $"Default ({options.First(o => EqualityComparer<T>.Default.Equals(o.Value, globalValue(s))).Text})");
             combo.Items.Add(defaultItem);
             combo.SelectedItem = defaultItem;
             foreach (var (option, text) in options)
@@ -472,27 +703,30 @@ internal sealed class SettingsWindow : Window
                 _save();
             };
             var labelled = Labelled(label, combo);
-            labelled.Margin = new Thickness(0, 0, 12, 6);
+            labelled.Margin = new Thickness(0, 6, 12, 0);
             return labelled;
         }
 
         private FrameworkElement StayOpenOverride()
         {
-            var combo = new ComboBox { MinWidth = 140 };
+            var combo = new ComboBox { MinWidth = 200 };
             AutomationName(combo, "Stay open");
-            foreach (var (tag, text) in new (bool?, string)[] { (null, "Default"), (true, "Yes"), (false, "No") })
+            ComboBoxItem? defaultItem = null;
+            foreach (var (tag, text) in new (bool?, string)[] { (null, ""), (true, "Yes"), (false, "No") })
             {
                 var item = new ComboBoxItem { Content = text, Tag = tag };
+                defaultItem ??= item;
                 combo.Items.Add(item);
                 if (Shortcut.StayOpenAfterAltRelease == tag) combo.SelectedItem = item;
             }
+            _defaultLabels.Add(s => defaultItem!.Content = $"Default ({(s.StayOpenAfterAltRelease ? "Yes" : "No")})");
             combo.SelectionChanged += (_, _) =>
             {
                 Shortcut.StayOpenAfterAltRelease = (combo.SelectedItem as ComboBoxItem)?.Tag as bool?;
                 _save();
             };
             var labelled = Labelled("Stay open", combo);
-            labelled.Margin = new Thickness(0, 0, 12, 6);
+            labelled.Margin = new Thickness(0, 6, 12, 0);
             return labelled;
         }
     }
