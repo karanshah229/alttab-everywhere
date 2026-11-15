@@ -70,6 +70,10 @@ internal sealed class SettingsStore : IDisposable
         }
     }
 
+    /// <summary>The settings as they are in the file now (defaults if it's missing or unreadable), without watching it.</summary>
+    public static Settings LoadOnce() =>
+        File.Exists(FilePath) && TryRead(out var settings) ? settings : new Settings().Normalized();
+
     public static string Serialize(Settings settings) => JsonSerializer.Serialize(settings, JsonOptions);
 
     /// <summary>
@@ -101,6 +105,9 @@ internal sealed class SettingsStore : IDisposable
             Log.Error($"save setting {key}", ex);
         }
     }
+
+    /// <summary>A value as settings.json writes it (camelCase enums and keys), for <see cref="SetValue"/>.</summary>
+    public static System.Text.Json.Nodes.JsonNode? ToNode<T>(T value) => JsonSerializer.SerializeToNode(value, JsonOptions);
 
     public static Settings Deserialize(string json) =>
         (JsonSerializer.Deserialize<Settings>(json, JsonOptions) ?? new Settings()).Normalized();

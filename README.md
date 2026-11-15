@@ -22,7 +22,7 @@ dotnet run --project src/AltTabEverywhere
 The app runs in the notification area, with no main window. Right-click its tray icon to:
 - **pause** it (untick **Enabled**);
 - turn **Start with Windows** on or off. This uses a per-user startup entry and needs no admin rights; it also shows in Windows Settings > Apps > Startup;
-- **edit settings**, **open the log folder**, or **exit**.
+- open **Settings…** (or double-click the icon), **edit the settings file**, **open the log folder**, or **exit**.
 
 If the app closes or crashes, Windows' own Alt+Tab takes over again straight away. After sleep, unlock or a display change, the app re-installs its keyboard hook automatically, in case Windows dropped it.
 
@@ -69,7 +69,9 @@ The switcher takes at most 75% of a monitor's width and 75% of its height. With 
 
 ## Settings
 
-Right-click the tray icon and choose **Edit settings…**. This opens `%APPDATA%\AltTabEverywhere\settings.json`, which is created with defaults on first run. Changes apply as soon as you save. If the file has a mistake, the switcher keeps your previous settings and writes the error to the log. Comments and trailing commas are allowed. Tray-menu toggles also write to this file, and they don't keep comments.
+Double-click the tray icon, or right-click it and choose **Settings…**, to open the settings window. Every setting below is there, and each change is saved and applied straight away. The window uses your `theme` setting (Windows' light or dark mode by default). It runs as its own short-lived process (`AltTabEverywhere.exe --settings`, which you can also pin as a shortcut), so the always-on switcher never holds its memory: closing the window frees all of it. Opening it takes about 1.5 seconds.
+
+Settings live in `%APPDATA%\AltTabEverywhere\settings.json`, created with defaults on first run. To edit the file by hand, choose **Edit settings file…** in the tray menu. Changes apply as soon as you save. If the file has a mistake, the switcher keeps your previous settings and writes the error to the log. Comments and trailing commas are allowed. The settings window and the tray toggles change one key at a time and keep every other key as you wrote it, but not comments.
 
 <a id="shortcuts"></a>**Shortcuts**
 
@@ -214,7 +216,7 @@ dotnet run -c Release --project src/AltTabEverywhere -- --measure
 
 ## Tests
 
-Run the unit tests (grid movement and paging, tile layout, grouping, search, shortcut parsing, settings parsing, theme colours, and a check that every Windows API call passing text uses Unicode) with:
+Run the unit tests (grid movement and paging, tile layout, grouping, search, shortcut parsing, settings parsing, theme colours, that the settings window has a control for every setting, and that every Windows API call passing text uses Unicode) with:
 
 ```bash
 dotnet test

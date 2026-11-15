@@ -24,15 +24,21 @@ internal static class Program
             return 0;
         }
 
-        using var mutex = new Mutex(true, demo ? "AltTabEverywhere.Demo" : "AltTabEverywhere.SingleInstance", out bool isFirstInstance);
-        if (!isFirstInstance) return 0;
-
         // The overlay is a few rectangles and text; live previews are composited by DWM, not WPF.
         // Software rendering avoids initialising a Direct3D device and the GPU driver, which
         // costs ~115 MB private memory and ~1,200 handles for the life of the process.
         // (--hardware-rendering exists only to compare the two with --measure.)
         if (!args.Contains("--hardware-rendering", StringComparer.OrdinalIgnoreCase))
             System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+
+        // The settings window runs in its own process, which exits when the window closes, so
+        // the always-on switcher never holds its memory. The switcher picks up each change from
+        // settings.json.
+        if (args.Contains("--settings", StringComparer.OrdinalIgnoreCase))
+            return RunSettingsWindow();
+
+        using var mutex = new Mutex(true, demo ? "AltTabEverywhere.Demo" : "AltTabEverywhere.SingleInstance", out bool isFirstInstance);
+        if (!isFirstInstance) return 0;
 
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.DispatcherUnhandledException += (_, e) =>
@@ -107,6 +113,32 @@ internal static class Program
             Log.Info("exited");
         };
 
+        return app.Run();
+    }
+
+    private static int RunSettingsWindow()
+    {
+        using var mutex = new Mutex(true, "AltTabEverywhere.Settings", out bool isFirstInstance);
+        if (!isFirstInstance)
+        {
+            SettingsWindow.ActivateExisting(); // already open: bring it to the front
+            return 0;
+        }
+
+        var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
+        app.DispatcherUnhandledException += (_, e) =>
+        {
+            Log.Error("settings window", e.Exception);
+            e.Handled = true;
+        };
+        app.Startup += (_, _) =>
+        {
+            System.IO.Directory.CreateDirectory(SettingsStore.Directory);
+            var window = new SettingsWindow(SettingsStore.LoadOnce());
+            app.MainWindow = window;
+            window.Show();
+            window.Activate();
+        };
         return app.Run();
     }
 }

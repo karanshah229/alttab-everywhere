@@ -39,6 +39,7 @@ Inspiration comes from:
 - [x] Low idle cost: 0 ms CPU, ~10–16 MB working set; opens in ~105–130 ms
 - [x] Phase 1: start with Windows, hook recovery, close from the switcher, exclusions, desktops scope, per-monitor lists, MIT licence
 - [x] Phase 2: type to search, several shortcuts with their own filters (including a current-app switcher), number keys, Home/End/Page Up/Page Down, hover to select
+- [x] Phase 3 (part): settings window, own icon, light/dark and accent colours
 
 ---
 
@@ -72,9 +73,9 @@ These make it safe to leave running all day, every day. None adds idle work.
 
 | # | Feature | Why | Effort | Idle cost | Seen in |
 |---|---|---|---|---|---|
-| 15 | **Settings window**: loaded only when opened, freed when closed | Editing JSON is a barrier for most people | M–L | None (if freed) | All alternatives |
-| 16 | **Own app and tray icon** | Currently the generic Windows icon | S | None | — |
-| 17 | **Follow Windows light/dark and the accent colour** (or pick colours) | Matches the OS | S–M | None | Alt-Tab Terminator, AltTab (macOS) |
+| 15 | ✅ **Settings window**: its own process, started when opened, gone when closed | Editing JSON is a barrier for most people | M–L | None (if freed) | All alternatives |
+| 16 | ✅ **Own app and tray icon** | Currently the generic Windows icon | S | None | — |
+| 17 | ✅ **Follow Windows light/dark and the accent colour** (or pick colours) | Matches the OS | S–M | None | Alt-Tab Terminator, AltTab (macOS) |
 | 18 | **Layout styles**: thumbnail grid (today), large icons, compact list, icons only | KDE ships several layouts; compact ones scan faster and are the lightest (no live previews) | M | None (saves memory per open) | KDE, Alt-Tab Terminator, AltTab (macOS) |
 | 19 | **Proper icons for Store apps** (from the app package's logo) | Store apps can show a generic icon today | M | None | Windows |
 | 20 | **State badges**: minimized, running as admin, not responding, on another desktop | Explains surprises | S–M | None | Ours |

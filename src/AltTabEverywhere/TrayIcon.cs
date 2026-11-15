@@ -22,7 +22,9 @@ internal sealed class TrayIcon : IDisposable
         _startWithWindows.Click += (_, _) => SettingsStore.SetValue("startWithWindows", !settings.Current.StartWithWindows);
         settings.Changed += () => _startWithWindows.Checked = settings.Current.StartWithWindows;
 
-        var editSettings = new Forms.ToolStripMenuItem("Edit settings…", null, (_, _) => OpenSettingsFile());
+        var openSettings = new Forms.ToolStripMenuItem("Settings…", null, (_, _) => SettingsWindow.Launch());
+        openSettings.Font = new System.Drawing.Font(openSettings.Font, System.Drawing.FontStyle.Bold); // the double-click action
+        var editSettings = new Forms.ToolStripMenuItem("Edit settings file…", null, (_, _) => OpenSettingsFile());
 
         var openLog = new Forms.ToolStripMenuItem("Open log folder", null, (_, _) =>
         {
@@ -31,6 +33,8 @@ internal sealed class TrayIcon : IDisposable
         });
 
         var menu = new Forms.ContextMenuStrip();
+        menu.Items.Add(openSettings);
+        menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(enabled);
         menu.Items.Add(_startWithWindows);
         menu.Items.Add(editSettings);
@@ -45,6 +49,7 @@ internal sealed class TrayIcon : IDisposable
             ContextMenuStrip = menu,
             Visible = true,
         };
+        _icon.DoubleClick += (_, _) => SettingsWindow.Launch();
     }
 
     /// <summary>The app icon at the notification area's size for this DPI (16 px at 100%, 24 at 150%...).</summary>
@@ -55,7 +60,7 @@ internal sealed class TrayIcon : IDisposable
     }
 
     /// <summary>Opens settings.json in the default .json editor, or Notepad if none is associated.</summary>
-    private static void OpenSettingsFile()
+    internal static void OpenSettingsFile()
     {
         try
         {
