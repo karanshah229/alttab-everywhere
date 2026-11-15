@@ -136,6 +136,7 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | `thumbnailHeight` | `140` | Preview height, 50–400 |
 | `iconSize` | `48` | App icon size in the `"icons"` and `"iconsOnly"` layouts, 16–128. Shrinks with the tiles when there are many windows |
 | `listWidth` | `480` | Row width of the `"list"` layout, 240–1200. Rows never shrink; a long list scrolls |
+| `storeAppIcons` | `true` | Store (UWP) apps show the icon from their app package, as the Start menu does, instead of the generic icon their window reports. Looked up once per app through the shell's Apps folder and cached; only done while a Store app window is open, so it costs nothing otherwise |
 | `theme` | `"system"` | `"system"` follows Windows' light or dark app mode, and changes with it. `"dark"` or `"light"` fixes it |
 | `accentColor` | `"system"` | Selection border. `"system"` uses Windows' accent colour, in the shade Windows uses on that background. Or a colour such as `"#FF8800"` |
 | `backgroundColor` | `""` | A colour such as `"#202020"` replaces the theme's background. Text turns light or dark to suit it |
@@ -185,6 +186,7 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 | Live previews | `DwmRegisterThumbnail` / `DwmUpdateThumbnailProperties`. DWM draws them on top of the window, so they are cropped to the scroll viewport by hand | `SwitcherWindow.cs` |
 | Grid and scrolling | One column count for all monitors; 75% × 75% cap | `TileLayout.cs` |
 | App stacks | Grouped by shell app ID, falling back to the executable path | `SwitcherItem.cs` |
+| Store app icons | `SHCreateItemInKnownFolder(FOLDERID_AppsFolder, appId)` and `IShellItemImageFactory::GetImage`, only for `ApplicationFrameWindow` windows | `Interop/AppIcons.cs` |
 | Switch windows | `SetForegroundWindow`, with an `AttachThreadInput` fallback | `WindowActivator.cs` |
 
 ## Resource use

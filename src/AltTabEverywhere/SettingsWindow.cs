@@ -258,6 +258,7 @@ internal sealed class SettingsWindow : Window
         Number("Preview height", "Live previews layout. 50–400.", "thumbnailHeight", _s.ThumbnailHeight, 50, 400);
         Number("Icon size", "Large icons and icons only. 16–128.", "iconSize", _s.IconSize, 16, 128);
         Number("List width", "Compact list. 240–1200.", "listWidth", _s.ListWidth, 240, 1200);
+        Toggle("Store app icons", "Use the icon from the app package, as in the Start menu.", "storeAppIcons", _s.StoreAppIcons);
 
         Section("System");
         Toggle("Start with Windows", "No admin rights needed.", "startWithWindows", _s.StartWithWindows);

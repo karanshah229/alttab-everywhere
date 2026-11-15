@@ -21,11 +21,14 @@ internal static class WindowEnumerator
     private static readonly Dictionary<string, ImageSource?> ExeIconCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ShellViews Shell = new();
     private static string? _lastSource;
+    private static bool _packagedAppIcons = true;
 
     /// <param name="includeOtherDesktops">Also list windows on other virtual desktops.</param>
-    public static List<WindowInfo> GetSwitchableWindows(bool includeOtherDesktops = false)
+    /// <param name="packagedAppIcons">Store apps get their package's icon (storeAppIcons) instead of the window's.</param>
+    public static List<WindowInfo> GetSwitchableWindows(bool includeOtherDesktops = false, bool packagedAppIcons = true)
     {
         if (HIconCache.Count > 512) HIconCache.Clear();
+        _packagedAppIcons = packagedAppIcons;
 
         // Preferred: the shell's own Alt+Tab list (exact match with Windows). Fallback: window-style
         // heuristics, used if the undocumented interfaces are missing on this Windows build.
@@ -164,7 +167,7 @@ internal static class WindowEnumerator
         return new WindowInfo(
             hwnd,
             title.ToString(),
-            GetIcon(hwnd),
+            (_packagedAppIcons && AppIcons.IsPackagedAppId(appUserModelId) && AppIcons.IsFrameHosted(hwnd) ? AppIcons.ForAppId(appUserModelId!) : null) ?? GetIcon(hwnd),
             Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST),
             Native.IsIconic(hwnd),
             appUserModelId,

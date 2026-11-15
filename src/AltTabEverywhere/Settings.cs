@@ -195,6 +195,9 @@ internal sealed class Settings
     /// <summary>Row width of the "list" layout, in device-independent pixels.</summary>
     public double ListWidth { get; set; } = 480;
 
+    /// <summary>Store (packaged) apps show their package's icon, as in the Start menu, instead of the window's.</summary>
+    public bool StoreAppIcons { get; set; } = true;
+
     /// <summary>Live DWM thumbnails. When false, tiles show the app icon only.</summary>
     public bool ShowThumbnails { get; set; } = true;
 
