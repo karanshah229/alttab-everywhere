@@ -34,6 +34,12 @@ dotnet run --project src/AltTabEverywhere -- --demo
 
 Log file: `%LOCALAPPDATA%\AltTabEverywhere\log.txt`. It records counts and layout only, never window titles. At 1 MB it rolls over to `log.1.txt`, so it never grows past about 2 MB.
 
+The app icon (`src/AltTabEverywhere/Assets/app.ico`) is drawn in code, one pixel grid per size. To change it, edit `tools/IconGen/Program.cs` and run:
+
+```bash
+dotnet run --project tools/IconGen
+```
+
 ## Keys
 
 | Keys | Action |
