@@ -127,7 +127,9 @@ internal static class Native
     /// <summary>wFlags bit 2 (0x4): don't change the keyboard state (dead keys), Windows 10 1607+.</summary>
     public const uint TOUNICODE_NO_STATE_CHANGE = 0x4;
 
-    [DllImport("user32.dll")]
+    // CharSet.Unicode is required: without it a char[] is marshalled as one-byte ANSI chars, so the
+    // native buffer is half the size cchBuff promises and ToUnicodeEx overruns the heap.
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int ToUnicodeEx(uint wVirtKey, uint wScanCode, byte[] lpKeyState,
         [Out] char[] pwszBuff, int cchBuff, uint wFlags, IntPtr dwhkl);
 
