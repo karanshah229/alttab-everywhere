@@ -46,6 +46,7 @@ internal sealed partial class SwitcherController
             foreach (var (layout, count) in Enum.GetValues<SwitcherLayout>().SelectMany(l => SelfTestCounts.Select(c => (l, c))))
             {
                 _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+                _settingsOverride.ShowDesktopTile = false; // checked on its own below
                 _settingsOverride.Layout = layout;
                 _settingsOverride.Peek = PeekMode.Outline;
                 _settingsOverride.PeekDelayMs = 0;
@@ -243,6 +244,7 @@ internal sealed partial class SwitcherController
                 foreach (bool minimizedOn in new[] { true, false })
                 {
                     _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+                    _settingsOverride.ShowDesktopTile = false; // checked on its own below
                     _settingsOverride.Layout = layout;
                     _settingsOverride.MinimizedBadge = minimizedOn;
                     _settingsOverride.AdminBadge = _settingsOverride.NotRespondingBadge = _settingsOverride.OtherDesktopBadge = true;
@@ -270,6 +272,7 @@ internal sealed partial class SwitcherController
 
             // listWindowsFrom = thisMonitor: each monitor's switcher lists only its own windows.
             _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+            _settingsOverride.ShowDesktopTile = false; // checked on its own below
             _settingsOverride.ListWindowsFrom = ListWindowsFrom.ThisMonitor;
             _settingsOverride.ShowOn = ShowOn.AllMonitors;
             _settingsOverride.ShowDelayMs = 0;
@@ -299,6 +302,7 @@ internal sealed partial class SwitcherController
 
             // Type to search, the "no match" state, and number keys, on a real session.
             _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+            _settingsOverride.ShowDesktopTile = false; // checked on its own below
             _settingsOverride.ListWindowsFrom = ListWindowsFrom.AllMonitors;
             _settingsOverride.ShowOn = ShowOn.AllMonitors;
             _settingsOverride.ShowDelayMs = 0;
@@ -352,6 +356,58 @@ internal sealed partial class SwitcherController
                 if (_plan.Any(p => p.Host.Query(w => w.IsSearchBarShown))) Fail($"search ({label}): search bar still shown after clearing");
             }
             End();
+
+            // Show desktop tile, with every monitor listing all windows and with each listing its own:
+            // it comes last on every switcher, has no window, is never where a session starts, can't be
+            // closed, gets no peek, and a search keeps it only when it matches. (It's never picked here:
+            // that would really clear the screen.)
+            foreach (var listFrom in new[] { ListWindowsFrom.AllMonitors, ListWindowsFrom.ThisMonitor })
+            {
+                foreach (bool reverse in new[] { false, true })
+                {
+                    string tag = $"desktop tile ({listFrom}{(reverse ? ", reverse" : "")})";
+                    _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+                    _settingsOverride.ShowDesktopTile = true;
+                    _settingsOverride.ListWindowsFrom = listFrom;
+                    _settingsOverride.ShowOn = ShowOn.AllMonitors;
+                    _settingsOverride.ShowDelayMs = 0;
+                    _settingsOverride.Peek = PeekMode.Outline;
+                    _settingsOverride.PeekDelayMs = 0;
+                    BeginSession(reverse, sendMaskKey: false);
+                    await WaitUntilShown();
+                    await Settle();
+                    foreach (var entry in _plan)
+                    {
+                        var (tiles, last) = entry.Host.Query(w => (w.TileRects.Count, w.ShownHandle(w.TileRects.Count - 1)));
+                        checks += 2;
+                        if (entry.Items.Count == 0 || !entry.Items[^1].IsDesktop) Fail($"{tag}, {entry.Host.Monitor.DeviceName}: last tile isn't Show desktop");
+                        if (tiles != entry.Items.Count || last != IntPtr.Zero) Fail($"{tag}, {entry.Host.Monitor.DeviceName}: {tiles} tiles drawn, last has a window");
+                    }
+                    checks++;
+                    if (_selected < 0 || _selected >= _items.Count || !_items[_selected].HasWindow) Fail($"{tag}: the session started on tile {_selected}, not a window");
+
+                    Select(_items.Count - 1);
+                    int before = _items.Count;
+                    CloseSelected();
+                    checks += 2;
+                    if (!_active || _items.Count != before) Fail($"{tag}: Delete on Show desktop changed the tiles");
+                    if (_peek?.Target is { } peeked && peeked != IntPtr.Zero) Fail($"{tag}: Show desktop got a peek outline");
+
+                    if (!reverse && listFrom == ListWindowsFrom.AllMonitors)
+                    {
+                        foreach (var (query, keeps) in new[] { ("desk", true), ("zqxjkvzqxjkv", false) })
+                        {
+                            SetQuery(query.Select(c => c.ToString()).ToList());
+                            await Settle();
+                            checks++;
+                            bool kept = _items.Count > 0 && _items[^1].IsDesktop;
+                            if (kept != keeps) Fail($"{tag}: search \"{query}\" {(kept ? "kept" : "dropped")} Show desktop");
+                        }
+                        SetQuery(new List<string>());
+                    }
+                    End();
+                }
+            }
             _settingsOverride = null;
         }
         catch (Exception ex)

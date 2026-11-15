@@ -16,22 +16,32 @@ internal sealed class SwitcherItem
         Windows = windows;
     }
 
-    private SwitcherItem()
+    private SwitcherItem(bool back)
     {
         Windows = Array.Empty<WindowInfo>();
-        IsBack = true;
+        IsBack = back;
+        IsDesktop = !back;
     }
 
     /// <summary>The "Back" tile that leads an open stack's view: no window; picking it returns to every window.</summary>
-    public static SwitcherItem CreateBack() => new();
+    public static SwitcherItem CreateBack() => new(back: true);
+
+    /// <summary>The "Show desktop" tile (showDesktopTile): no window; picking it shows the desktop.</summary>
+    public static SwitcherItem CreateDesktop() => new(back: false);
+
+    /// <summary>The text the Show desktop tile shows and that a search matches.</summary>
+    public const string DesktopTitle = "Show desktop";
 
     public IReadOnlyList<WindowInfo> Windows { get; }
     public int Current { get; private set; }
-    /// <summary>The window the tile shows and would activate. A Back tile has none: check <see cref="IsBack"/> first.</summary>
+    /// <summary>The window the tile shows and would activate. Back and Show desktop have none: check <see cref="HasWindow"/> first.</summary>
     public WindowInfo Shown => Windows[Current];
     public int Count => Windows.Count;
     public bool IsStack => Windows.Count > 1;
     public bool IsBack { get; }
+    public bool IsDesktop { get; }
+    /// <summary>A window's (or stack's) tile, as opposed to Back or Show desktop.</summary>
+    public bool HasWindow => Windows.Count > 0;
 
     /// <summary>Makes the tile show a given window of the stack (e.g. the one a search matched).</summary>
     public void ShowWindow(int index) => Current = Math.Clamp(index, 0, Count - 1);

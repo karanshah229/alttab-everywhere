@@ -287,7 +287,7 @@ internal sealed class SwitcherWindow : Window
         {
             int number = showNumbers ? SwitcherItem.NumberOf(items, i) : 0;
             var tile = CreateTile(i, _layout, contentWidth, contentHeight, settings.IconSize * contentScale,
-                number > 0 ? number.ToString() : null, items[i].IsBack);
+                number > 0 ? number.ToString() : null, items[i].IsBack ? BackGlyph : items[i].IsDesktop ? DesktopGlyph : null);
             Bind(tile, items[i], settings);
             _tiles.Add(tile);
             _panel.Children.Add(tile.Root);
@@ -367,8 +367,8 @@ internal sealed class SwitcherWindow : Window
     /// <param name="contentHeight">Preview or icon box height, already scaled (unused by the list).</param>
     /// <param name="iconSize">The large icon's size in the icons and iconsOnly layouts, already scaled.</param>
     /// <param name="number">"1".."9" for the number keys, or null.</param>
-    /// <param name="isBack">An open stack's Back tile: an arrow instead of a window, and no close button.</param>
-    private Tile CreateTile(int index, SwitcherLayout layout, double contentWidth, double contentHeight, double iconSize, string? number, bool isBack)
+    /// <param name="glyph">Back and Show desktop tiles: a symbol instead of a window, and no close button. Null for a window.</param>
+    private Tile CreateTile(int index, SwitcherLayout layout, double contentWidth, double contentHeight, double iconSize, string? number, string? glyph)
     {
         bool list = layout == SwitcherLayout.List;
         bool iconsOnly = layout == SwitcherLayout.IconsOnly;
@@ -392,7 +392,7 @@ internal sealed class SwitcherWindow : Window
             Height = 16,
             Margin = new Thickness(0, 0, 6, 0),
             VerticalAlignment = VerticalAlignment.Center,
-            Visibility = largeIcon || isBack ? Visibility.Collapsed : Visibility.Visible,
+            Visibility = largeIcon || glyph is not null ? Visibility.Collapsed : Visibility.Visible,
         };
         RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality);
 
@@ -465,10 +465,10 @@ internal sealed class SwitcherWindow : Window
             TileCloseRequested?.Invoke(index);
         };
 
-        TextBlock BackArrow(double size) => new()
+        TextBlock Glyph(double size) => new()
         {
-            Text = "", // back arrow
-            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+            Text = glyph,
+            FontFamily = IconFont,
             FontSize = size,
             Foreground = _theme.DimText,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -500,7 +500,7 @@ internal sealed class SwitcherWindow : Window
         {
             // The icon, with the number in the top-left corner and the stack badge bottom-right.
             var cell = new Grid();
-            cell.Children.Add(isBack ? BackArrow(iconSize * 0.7) : placeholder);
+            cell.Children.Add(glyph is not null ? Glyph(iconSize * 0.7) : placeholder);
             numberText.HorizontalAlignment = HorizontalAlignment.Left;
             numberText.VerticalAlignment = VerticalAlignment.Top;
             numberText.Margin = new Thickness(0);
@@ -521,9 +521,9 @@ internal sealed class SwitcherWindow : Window
             var header = new DockPanel { Height = TileLayout.TitleRowHeight, Margin = new Thickness(0, 0, 0, list ? 0 : 6) };
             DockPanel.SetDock(numberText, Dock.Left);
             header.Children.Add(numberText);
-            if (isBack && list)
+            if (glyph is not null && list)
             {
-                var arrow = BackArrow(14);
+                var arrow = Glyph(14);
                 arrow.Margin = new Thickness(0, 0, 8, 0);
                 DockPanel.SetDock(arrow, Dock.Left);
                 header.Children.Add(arrow);
@@ -543,7 +543,7 @@ internal sealed class SwitcherWindow : Window
             stack.Children.Add(header);
             if (!list)
             {
-                thumbHost.Child = isBack ? BackArrow(Math.Min(40, contentHeight * 0.4)) : placeholder;
+                thumbHost.Child = glyph is not null ? Glyph(Math.Min(40, contentHeight * 0.4)) : placeholder;
                 stack.Children.Add(thumbHost);
             }
             body = stack;
@@ -581,20 +581,22 @@ internal sealed class SwitcherWindow : Window
             _lastCursor = cursor;
             TileHovered?.Invoke(index);
         };
-        root.MouseEnter += (_, _) => { if (_showCloseButton && !isBack && !iconsOnly) close.Visibility = Visibility.Visible; };
+        root.MouseEnter += (_, _) => { if (_showCloseButton && glyph is null && !iconsOnly) close.Visibility = Visibility.Visible; };
         root.MouseLeave += (_, _) => close.Visibility = Visibility.Collapsed;
 
         return new Tile(root, thumbHost, icon, title, placeholder, badge, badgeText, states);
     }
 
     private static readonly FontFamily IconFont = new("Segoe Fluent Icons, Segoe MDL2 Assets");
+    private const string BackGlyph = "";    // back arrow
+    private const string DesktopGlyph = ""; // monitor
 
     private void Bind(Tile tile, SwitcherItem item, Settings settings)
     {
-        if (item.IsBack)
+        if (!item.HasWindow)
         {
             tile.Window = null;
-            tile.Title.Text = "Back";
+            tile.Title.Text = item.IsBack ? "Back" : SwitcherItem.DesktopTitle;
             tile.Badge.Visibility = Visibility.Collapsed;
             return;
         }

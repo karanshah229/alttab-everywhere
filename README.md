@@ -109,6 +109,7 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | `peekDelayMs` | `0` | Resting on a tile this long before its outline appears; the outline is hidden while the selection moves. 0–5000 |
 | `peekBorderWidth` | `4` | Thickness of the outline, in device-independent pixels (scaled for each monitor). 1–20 |
 | `peekColor` | `""` | Outline colour as `"#RRGGBB"`; empty uses the accent colour |
+| `showDesktopTile` | `false` | A **Show desktop** tile after the windows, on every switcher. Picking it (Enter, a click, letting go of Alt, or its number) closes the switcher and shows the desktop, like Win+D, through the shell's `ToggleDesktop`; if the desktop already had focus it simply stays. A session never starts on it, Delete doesn't close it, and while searching it's listed only if "Show desktop" matches what you typed |
 | `excludedApps` | `[]` | Apps never listed. Each entry can be an executable name (`"notepad.exe"` or `"notepad"`), a full path, or a shell app ID (see `--list`) |
 | `excludedTitles` | `[]` | Windows never listed if their title contains any of these. Not case-sensitive |
 
@@ -197,6 +198,7 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 | Store app icons | `SHCreateItemInKnownFolder(FOLDERID_AppsFolder, appId)` and `IShellItemImageFactory::GetImage`, only for `ApplicationFrameWindow` windows | `Interop/AppIcons.cs` |
 | State badges | `IsIconic`, `IsHungAppWindow`, the process token's `TokenElevation` (checked once per process per opening, only while that badge is on), and the DWM cloak for other desktops | `StateBadges.cs`, `Interop/ProcessElevation.cs` |
 | Peek | A click-through popup (layered, `WS_EX_TRANSPARENT`) shaped into a ring with `SetWindowRgn` and painted by its class brush, placed on `DWMWA_EXTENDED_FRAME_BOUNDS` just below the switcher in the topmost band. Created on the first peek of a session and destroyed when the session ends | `Interop/PeekOutline.cs` |
+| Show desktop tile | `Shell.Application` (`IShellDispatch4::ToggleDesktop`), created when the tile is picked and released straight after | `Interop/ShellDesktop.cs` |
 | Switch windows | `SetForegroundWindow`, with an `AttachThreadInput` fallback | `WindowActivator.cs` |
 
 ## Resource use
@@ -270,7 +272,7 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability) and 2 (find windows faster) are done. **Phase 3: looks and settings** is under way: the settings window, the app's own icon, light/dark themes, layout styles, Store-app icons, state badges and Peek are done; a "show desktop" tile and accessibility are next.
+See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability) and 2 (find windows faster) are done. **Phase 3: looks and settings** is under way: the settings window, the app's own icon, light/dark themes, layout styles, Store-app icons, state badges, Peek and a "show desktop" tile are done; accessibility is next.
 
 ## License
 

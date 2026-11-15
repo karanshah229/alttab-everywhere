@@ -174,6 +174,9 @@ internal sealed class Settings
     /// <summary>Peek outline colour: "#RRGGBB", or empty for the accent colour.</summary>
     public string PeekColor { get; set; } = "";
 
+    /// <summary>A "Show desktop" tile after the windows; picking it shows the desktop, like Win+D.</summary>
+    public bool ShowDesktopTile { get; set; }
+
     /// <summary>Apps never listed: executable names ("notepad.exe" or "notepad"), full paths, or app IDs.</summary>
     public List<string> ExcludedApps { get; set; } = new();
 

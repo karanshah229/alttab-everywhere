@@ -228,6 +228,7 @@ internal sealed class SettingsWindow : Window
         Number("Peek delay (ms)", "Rest on a tile this long first. 0–5000.", "peekDelayMs", _s.PeekDelayMs, 0, 5000);
         Number("Peek outline width", "1–20.", "peekBorderWidth", _s.PeekBorderWidth, 1, 20);
         Colour("Peek colour", "Empty: accent colour.", "peekColor", _s.PeekColor, "", t => t.AccentColor);
+        Toggle("Show desktop tile", "A last tile that clears the screen, like Win+D.", "showDesktopTile", _s.ShowDesktopTile);
 
         Section("Filters");
         Lines("Excluded apps", "One per line: name, path or app ID.", "excludedApps", _s.ExcludedApps);

@@ -297,8 +297,9 @@ internal sealed partial class SwitcherController : IDisposable
             }
 
             // Like Windows: start on the previous tile, unless focus isn't on a listed window.
-            int forwardStart = _items.Count > 1 && _items[0].Contains(_originalForeground) ? 1 : 0;
-            _selected = reverse ? _items.Count - 1 : forwardStart;
+            int forwardStart = _items.Count > 1 && _items[0].Contains(_originalForeground) && _items[1].HasWindow ? 1 : 0;
+            // Never start on the Show desktop tile: a quick Alt+Tab with one window shouldn't clear the screen.
+            _selected = reverse ? Math.Max(0, _items.FindLastIndex(i => i.HasWindow)) : forwardStart;
 
             // Build the switcher now, invisibly; it's revealed when the build finishes (no delay)
             // or when the show delay ends, whichever is later.
@@ -340,7 +341,7 @@ internal sealed partial class SwitcherController : IDisposable
         if (settings.ListWindowsFrom == ListWindowsFrom.AllMonitors)
         {
             // One list and one grid for every monitor: as many columns as the most cramped one fits.
-            var items = OpenStackView() ?? Search(Group(_windows));
+            var items = OpenStackView() ?? WithDesktopTile(Search(Group(_windows)));
             int columns = candidates.Min(o => o.MaxColumns(items.Count, settings));
             plan.AddRange(candidates.Select(o => new PlanEntry(o, items, columns, MirrorsSelection: true)));
         }
@@ -359,6 +360,7 @@ internal sealed partial class SwitcherController : IDisposable
                 var items = Search(Group(own));
                 // While searching, the focus monitor stays up (showing "no match") so typing can continue.
                 if (items.Count == 0 && host != focus) continue;
+                items = WithDesktopTile(items);
                 plan.Add(new PlanEntry(host, items, host.MaxColumns(items.Count, settings), MirrorsSelection: host == focus));
             }
         }
@@ -394,6 +396,16 @@ internal sealed partial class SwitcherController : IDisposable
 
     private List<SwitcherItem> Search(List<SwitcherItem> items) =>
         _query.Length == 0 ? items : WindowSearch.Filter(items, _query, Settings.SearchMode, SearchTextOf);
+
+    /// <summary>showDesktopTile: the Show desktop tile after the windows (while searching, only if it matches).</summary>
+    private List<SwitcherItem> WithDesktopTile(List<SwitcherItem> items)
+    {
+        var settings = Settings;
+        if (!settings.ShowDesktopTile) return items;
+        if (_query.Length > 0 && WindowSearch.Score(SwitcherItem.DesktopTitle, WindowSearch.Terms(_query), settings.SearchMode) < 0)
+            return items;
+        return new List<SwitcherItem>(items) { SwitcherItem.CreateDesktop() };
+    }
 
     /// <summary>Title plus app name. App names need a process lookup, so they're only built once someone types.</summary>
     private string SearchTextOf(WindowInfo window)
@@ -578,7 +590,12 @@ internal sealed partial class SwitcherController : IDisposable
             return;
         }
         // A click on another monitor's own list (listWindowsFrom = thisMonitor).
-        if (ItemAt(host, index) is { } item)
+        if (ItemAt(host, index) is { IsDesktop: true })
+        {
+            ShowDesktop();
+            return;
+        }
+        if (ItemAt(host, index) is { HasWindow: true } item)
         {
             WindowActivator.Activate(item.Shown.Handle);
             End();
@@ -587,7 +604,7 @@ internal sealed partial class SwitcherController : IDisposable
 
     private void OnTileCloseRequested(OverlayHost host, int index)
     {
-        if (_active && ItemAt(host, index) is { IsBack: false } item) CloseWindow(item.Shown.Handle);
+        if (_active && ItemAt(host, index) is { HasWindow: true } item) CloseWindow(item.Shown.Handle);
     }
 
     /// <summary>A stack's badge: open the stack (on a switcher the keyboard drives; elsewhere it's a plain click).</summary>
@@ -613,7 +630,7 @@ internal sealed partial class SwitcherController : IDisposable
     /// <summary>Delete key: close the selected window.</summary>
     private void CloseSelected()
     {
-        if (_active && _selected >= 0 && _selected < _items.Count && !_items[_selected].IsBack) CloseWindow(_items[_selected].Shown.Handle);
+        if (_active && _selected >= 0 && _selected < _items.Count && _items[_selected].HasWindow) CloseWindow(_items[_selected].Shown.Handle);
     }
 
     /// <summary>
@@ -726,7 +743,7 @@ internal sealed partial class SwitcherController : IDisposable
     /// <summary>The selected window, if it has a place on this desktop to outline.</summary>
     private IntPtr PeekTarget()
     {
-        if (_selected < 0 || _selected >= _items.Count || _items[_selected].IsBack) return IntPtr.Zero;
+        if (_selected < 0 || _selected >= _items.Count || !_items[_selected].HasWindow) return IntPtr.Zero;
         var window = _items[_selected].Shown;
         return window.IsMinimized || window.OnOtherDesktop ? IntPtr.Zero : window.Handle;
     }
@@ -779,7 +796,7 @@ internal sealed partial class SwitcherController : IDisposable
         IntPtr shown = stack.Shown.Handle;
         _openStack = stack;
         _stackReturnIndex = _selected;
-        Replan(items => Math.Max(1, items.FindIndex(i => !i.IsBack && i.Shown.Handle == shown)));
+        Replan(items => Math.Max(1, items.FindIndex(i => i.HasWindow && i.Shown.Handle == shown)));
         if (!_uiShown) RevealUi(); // opened before the switcher appeared: show it now
     }
 
@@ -836,6 +853,11 @@ internal sealed partial class SwitcherController : IDisposable
             Cancel(); // let go of Alt on Back: nothing was picked, go back where we came from
             return;
         }
+        if (_selected >= 0 && _selected < _items.Count && _items[_selected].IsDesktop)
+        {
+            ShowDesktop();
+            return;
+        }
         IntPtr target = _selected >= 0 && _selected < _items.Count ? _items[_selected].Shown.Handle : IntPtr.Zero;
         // Nothing selected (a search with no match): go back where we came from, like Esc.
         if (target == IntPtr.Zero && _uiShown) target = _originalForeground;
@@ -849,6 +871,23 @@ internal sealed partial class SwitcherController : IDisposable
         if (!_active) return;
         if (_uiShown) WindowActivator.Activate(_originalForeground);
         End();
+    }
+
+    /// <summary>The Show desktop tile was picked: close the switcher and show the desktop, like Win+D.</summary>
+    private void ShowDesktop()
+    {
+        if (!_active) return;
+        IntPtr previous = _originalForeground;
+        if (ShellDesktop.IsDesktopWindow(previous))
+        {
+            // Already on the desktop: stay there (the shell's toggle would bring every window back).
+            WindowActivator.Activate(previous);
+            End();
+            return;
+        }
+        End(); // first, so the switcher isn't part of what the shell hides
+        ShellDesktop.ToggleDesktop();
+        Log.Info("showed the desktop from the switcher");
     }
 
     /// <summary>--selftest: log who ends sessions, to diagnose unexpected ends.</summary>
