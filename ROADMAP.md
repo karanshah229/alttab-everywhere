@@ -32,7 +32,7 @@ Inspiration comes from:
 - [x] Switcher on every monitor at once (or only the one under the mouse)
 - [x] Same window list as Windows' Alt+Tab (the shell's own list)
 - [x] Live previews, per-monitor DPI, shared grid across monitors, arrow keys, rows, wrap-around
-- [x] Stacked mode (one tile per app) with Alt+` to cycle through an app's windows (GNOME and macOS style)
+- [x] Stacked mode (one tile per app): pause on a stack (or press Alt+`, or click its badge) to see its windows, with a Back tile
 - [x] Stay-open mode (like Windows' Ctrl+Alt+Tab)
 - [x] 75% × 75% size cap with internal scrolling
 - [x] JSON settings with live reload; tray icon (pause, edit settings, log, exit)

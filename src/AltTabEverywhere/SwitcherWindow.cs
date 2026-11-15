@@ -129,6 +129,8 @@ internal sealed class SwitcherWindow : Window
     public event Action<int>? TileCloseRequested;
     /// <summary>The mouse moved onto a tile (raised only with hoverSelects, and only for real mouse movement).</summary>
     public event Action<int>? TileHovered;
+    /// <summary>A stack's "×3" badge was clicked: open the stack.</summary>
+    public event Action<int>? TileBadgeClicked;
 
     private bool _middleClickCloses = true;
     private bool _showCloseButton = true;
@@ -263,7 +265,8 @@ internal sealed class SwitcherWindow : Window
 
         for (int i = 0; i < items.Count; i++)
         {
-            var tile = CreateTile(i, tileWidth, thumbHeight, showNumbers && i < 9 ? (i + 1).ToString() : null);
+            int number = showNumbers ? SwitcherItem.NumberOf(items, i) : 0;
+            var tile = CreateTile(i, tileWidth, thumbHeight, number > 0 ? number.ToString() : null, items[i].IsBack);
             Bind(tile, items[i]);
             _tiles.Add(tile);
             _panel.Children.Add(tile.Root);
@@ -277,17 +280,6 @@ internal sealed class SwitcherWindow : Window
         Reposition();
 
         foreach (var tile in _tiles) RegisterThumbnail(tile);
-        UpdateThumbnails();
-    }
-
-    /// <summary>Re-binds one tile after its stack was cycled to a different window.</summary>
-    public void RefreshTile(int index, SwitcherItem item)
-    {
-        if (index < 0 || index >= _tiles.Count) return;
-        var tile = _tiles[index];
-        UnregisterThumbnail(tile);
-        Bind(tile, item);
-        RegisterThumbnail(tile);
         UpdateThumbnails();
     }
 
@@ -345,7 +337,8 @@ internal sealed class SwitcherWindow : Window
 
     /// <summary>Builds an empty tile; <see cref="Bind"/> fills in the window it shows.</summary>
     /// <param name="number">"1".."9" for the number keys, or null.</param>
-    private Tile CreateTile(int index, double tileWidth, double thumbHeight, string? number)
+    /// <param name="isBack">An open stack's Back tile: an arrow instead of a preview, and no close button.</param>
+    private Tile CreateTile(int index, double tileWidth, double thumbHeight, string? number, bool isBack)
     {
         var numberText = new TextBlock
         {
@@ -375,7 +368,7 @@ internal sealed class SwitcherWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        // "×3" on a stack, "2/3" once the user has cycled within it. Hidden for single windows.
+        // "×3" on a stack (click it to open the stack). Hidden for single windows.
         var badgeText = new TextBlock
         {
             Foreground = _theme.Text,
@@ -391,6 +384,12 @@ internal sealed class SwitcherWindow : Window
             Margin = new Thickness(6, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
             Child = badgeText,
+            ToolTip = "Show its windows",
+        };
+        badge.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true; // don't also switch to the window
+            TileBadgeClicked?.Invoke(index);
         };
 
         // × to close the window; shown only while the mouse is over the tile.
@@ -451,7 +450,17 @@ internal sealed class SwitcherWindow : Window
             Height = thumbHeight,
             Background = _theme.ThumbBackground,
             CornerRadius = new CornerRadius(4),
-            Child = placeholder,
+            Child = isBack
+                ? new TextBlock
+                {
+                    Text = "\uE72B", // back arrow
+                    FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+                    FontSize = Math.Min(40, thumbHeight * 0.4),
+                    Foreground = _theme.DimText,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                }
+                : placeholder,
         };
 
         // Fixed width: without it a long title widens its tile and the columns stop lining up.
@@ -491,7 +500,7 @@ internal sealed class SwitcherWindow : Window
             _lastCursor = cursor;
             TileHovered?.Invoke(index);
         };
-        root.MouseEnter += (_, _) => { if (_showCloseButton) close.Visibility = Visibility.Visible; };
+        root.MouseEnter += (_, _) => { if (_showCloseButton && !isBack) close.Visibility = Visibility.Visible; };
         root.MouseLeave += (_, _) => close.Visibility = Visibility.Collapsed;
 
         return new Tile(root, thumbHost, icon, title, placeholder, badge, badgeText);
@@ -499,13 +508,20 @@ internal sealed class SwitcherWindow : Window
 
     private static void Bind(Tile tile, SwitcherItem item)
     {
+        if (item.IsBack)
+        {
+            tile.Window = null;
+            tile.Title.Text = "Back";
+            tile.Badge.Visibility = Visibility.Collapsed;
+            return;
+        }
         var window = item.Shown;
         tile.Window = window;
         tile.Icon.Source = window.Icon;
         tile.Placeholder.Source = window.Icon;
         tile.Title.Text = window.Title;
         tile.Badge.Visibility = item.IsStack ? Visibility.Visible : Visibility.Collapsed;
-        tile.BadgeText.Text = item.Current == 0 ? $"×{item.Count}" : $"{item.Current + 1}/{item.Count}";
+        tile.BadgeText.Text = $"×{item.Count}";
     }
 
     private void RegisterThumbnail(Tile tile)

@@ -49,8 +49,10 @@ internal sealed class KeyboardHook : IDisposable
     /// <summary>-1 / +1: one row up / down (Up/Down arrows).</summary>
     public event Action<int>? MoveRow;
     public event Action<JumpKey>? Jump;
-    /// <summary>-1 / +1: previous / next window inside the selected app stack (the key above Tab, with Shift).</summary>
-    public event Action<int>? CycleStack;
+    /// <summary>-1 / +1: the key above Tab (with Shift: -1). Opens the selected stack, or moves within an open one.</summary>
+    public event Action<int>? StackKey;
+    /// <summary>Leave an open stack: Enter on its Back tile, or Backspace with nothing typed.</summary>
+    public event Action? StackBack;
     /// <summary>The shortcut's modifier keys were all released.</summary>
     public event Action? ModifiersReleased;
     public event Action? Commit;
@@ -72,6 +74,9 @@ internal sealed class KeyboardHook : IDisposable
     public bool DeleteCloses { get; set; } = true;
 
     public bool TypeToSearch { get; set; } = true;
+
+    /// <summary>Set by the controller: the selection is an open stack's Back tile, so Enter goes back instead of switching.</summary>
+    public bool BackSelected { get; set; }
 
     public bool NumberKeys { get; set; } = true;
 
@@ -117,6 +122,7 @@ internal sealed class KeyboardHook : IDisposable
     {
         _session = -1;
         _searchStrokes = 0;
+        BackSelected = false;
     }
 
     private IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam)
@@ -204,6 +210,9 @@ internal sealed class KeyboardHook : IDisposable
                     Post(() => Cancel?.Invoke());
                 }
                 return SwallowDown(vk);
+            case VK_RETURN when BackSelected:
+                Post(() => StackBack?.Invoke()); // the session goes on, showing every window again
+                return SwallowDown(vk);
             case VK_RETURN:
                 EndSession();
                 Post(() => Commit?.Invoke());
@@ -219,20 +228,21 @@ internal sealed class KeyboardHook : IDisposable
             case VK_DELETE when DeleteCloses:
                 Post(() => CloseSelected?.Invoke());
                 return SwallowDown(vk);
-            case VK_BACK when TypeToSearch:
-                if (_searchStrokes > 0)
+            case VK_BACK:
+                if (TypeToSearch && _searchStrokes > 0)
                 {
                     _searchStrokes--;
                     Post(() => SearchBackspace?.Invoke());
                 }
+                else Post(() => StackBack?.Invoke()); // nothing typed: leave an open stack (else nothing)
                 return SwallowDown(vk);
         }
 
-        // The key above Tab cycles through an app stack (by position, so it works on any layout).
+        // The key above Tab opens an app stack (by position, so it works on any layout).
         if (scan == ShortcutKeys.AboveTabScanCode)
         {
             int d = IsDown(VK_SHIFT) ? -1 : +1;
-            Post(() => CycleStack?.Invoke(d));
+            Post(() => StackKey?.Invoke(d));
             return SwallowDown(vk);
         }
 

@@ -30,6 +30,8 @@ internal sealed class OverlayHost
     public event Action<int>? TileCloseRequested;
     /// <summary>Raised on the controller's thread (hoverSelects).</summary>
     public event Action<int>? TileHovered;
+    /// <summary>Raised on the controller's thread: a stack's badge was clicked.</summary>
+    public event Action<int>? TileBadgeClicked;
 
     public OverlayHost(MonitorInfo monitor, Dispatcher controller)
     {
@@ -49,6 +51,7 @@ internal sealed class OverlayHost
                 window.Deactivated += (_, _) => controller.InvokeAsync(() => Deactivated?.Invoke());
                 window.TileCloseRequested += index => controller.InvokeAsync(() => TileCloseRequested?.Invoke(index));
                 window.TileHovered += index => controller.InvokeAsync(() => TileHovered?.Invoke(index));
+                window.TileBadgeClicked += index => controller.InvokeAsync(() => TileBadgeClicked?.Invoke(index));
             }
             catch (Exception ex)
             {
@@ -103,8 +106,6 @@ internal sealed class OverlayHost
     public void Reveal() => _window.SetCloaked(false);
 
     public void Select(int index) => _dispatcher.InvokeAsync(() => _window.SetSelected(index));
-
-    public void Refresh(int index, SwitcherItem item) => _dispatcher.InvokeAsync(() => _window.RefreshTile(index, item));
 
     public void EndSession() => _dispatcher.InvokeAsync(() =>
     {

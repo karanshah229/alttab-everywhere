@@ -16,19 +16,43 @@ internal sealed class SwitcherItem
         Windows = windows;
     }
 
+    private SwitcherItem()
+    {
+        Windows = Array.Empty<WindowInfo>();
+        IsBack = true;
+    }
+
+    /// <summary>The "Back" tile that leads an open stack's view: no window; picking it returns to every window.</summary>
+    public static SwitcherItem CreateBack() => new();
+
     public IReadOnlyList<WindowInfo> Windows { get; }
     public int Current { get; private set; }
+    /// <summary>The window the tile shows and would activate. A Back tile has none: check <see cref="IsBack"/> first.</summary>
     public WindowInfo Shown => Windows[Current];
     public int Count => Windows.Count;
     public bool IsStack => Windows.Count > 1;
-
-    /// <summary>Moves to the next / previous window in the stack, wrapping around.</summary>
-    public void Cycle(int delta) => Current = GridNavigation.Step(Current, delta, Count);
+    public bool IsBack { get; }
 
     /// <summary>Makes the tile show a given window of the stack (e.g. the one a search matched).</summary>
     public void ShowWindow(int index) => Current = Math.Clamp(index, 0, Count - 1);
 
     public bool Contains(IntPtr hwnd) => Windows.Any(w => w.Handle == hwnd);
+
+    /// <summary>The 1–9 label of tile <paramref name="index"/>, or 0 for none. A Back tile has none and doesn't count.</summary>
+    public static int NumberOf(IReadOnlyList<SwitcherItem> items, int index)
+    {
+        if (index < 0 || index >= items.Count || items[index].IsBack) return 0;
+        int number = index + 1 - (items.Count > 0 && items[0].IsBack ? 1 : 0);
+        return number <= 9 ? number : 0;
+    }
+
+    /// <summary>The tile that number key <paramref name="number"/> means, or -1.</summary>
+    public static int IndexOfNumber(IReadOnlyList<SwitcherItem> items, int number)
+    {
+        if (number < 1 || number > 9) return -1;
+        int index = number - 1 + (items.Count > 0 && items[0].IsBack ? 1 : 0);
+        return index < items.Count ? index : -1;
+    }
 }
 
 internal static class WindowGrouping
@@ -55,5 +79,16 @@ internal static class WindowGrouping
             group.Add(window);
         }
         return order.Select(key => new SwitcherItem(groups[key])).ToList();
+    }
+
+    /// <summary>
+    /// An open stack's view: a Back tile, then one tile per window of the stack that is still
+    /// listed (<paramref name="stillListed"/>), in the stack's order. Just the Back tile if none is.
+    /// </summary>
+    public static List<SwitcherItem> StackView(SwitcherItem stack, Func<WindowInfo, bool> stillListed)
+    {
+        var view = new List<SwitcherItem> { SwitcherItem.CreateBack() };
+        view.AddRange(stack.Windows.Where(stillListed).Select(w => new SwitcherItem(new[] { w })));
+        return view;
     }
 }

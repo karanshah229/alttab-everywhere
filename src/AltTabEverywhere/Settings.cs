@@ -132,6 +132,12 @@ internal sealed class Settings
 
     public GroupWindows GroupWindows { get; set; } = GroupWindows.Separate;
 
+    /// <summary>
+    /// Stacked mode: resting on a stack this long opens it (its windows as tiles, plus a Back tile;
+    /// resting on Back for as long goes back). 0 turns that off; the key above Tab still opens a stack.
+    /// </summary>
+    public int StackOpenDelayMs { get; set; } = 500;
+
     /// <summary>Apps never listed: executable names ("notepad.exe" or "notepad"), full paths, or app IDs.</summary>
     public List<string> ExcludedApps { get; set; } = new();
 
@@ -194,6 +200,7 @@ internal sealed class Settings
     public Settings Normalized()
     {
         ShowDelayMs = Math.Clamp(ShowDelayMs, 0, 2000);
+        StackOpenDelayMs = Math.Clamp(StackOpenDelayMs, 0, 5000);
         TileWidth = Math.Clamp(TileWidth, 80, 600);
         ThumbnailHeight = Math.Clamp(ThumbnailHeight, 50, 400);
         if (!Enum.IsDefined(ShowOn)) ShowOn = ShowOn.AllMonitors;

@@ -17,8 +17,8 @@ internal sealed partial class SwitcherController
     /// <summary>
     /// --selftest: for several tile counts (some tiles are app stacks), checks on every monitor that
     /// each arrow key lands where the tiles' on-screen positions say it should, that the selection is
-    /// scrolled into view, that the switcher stays within its size cap, and that cycling a stack
-    /// shows the right window without moving tiles.
+    /// scrolled into view, that the switcher stays within its size cap, and that opening a stack
+    /// (by key and by resting on it) shows its windows and Back returns.
     /// </summary>
     public async void RunSelfTest(Action<bool> done)
     {
@@ -68,27 +68,57 @@ internal sealed partial class SwitcherController
                              $"{TileLayout.MaxWidthFraction:P0} x {TileLayout.MaxHeightFraction:P0} ({overlay.Query(w => w.DescribeForLog())})");
                 }
 
-                // Stack cycling: the tile must switch to the stack's next window on every monitor,
-                // without moving or resizing (which would break the shared grid).
+                // Stacks: opening one shows a Back tile and its windows on every monitor, with the
+                // window the stack's tile showed still selected; Back returns to the stack's tile.
+                var mainItems = _items;
+                _testItems = mainItems;
+                _windows = mainItems.SelectMany(i => i.Windows).ToList();
                 for (int index = 0; index < count; index++)
                 {
-                    if (!_items[index].IsStack) continue;
+                    var stack = mainItems[index];
+                    if (!stack.IsStack) continue;
                     Select(index);
-                    var before = shown.Select(o => o.Query(w => { w.UpdateLayout(); return w.TileRects; })).ToList();
-                    CycleStack(+1);
-                    for (int m = 0; m < shown.Count; m++)
+                    OpenStack();
+                    checks += 3;
+                    if (_openStack != stack) { Fail($"{count} tiles, stack {index}: didn't open"); continue; }
+                    if (_items.Count != stack.Count + 1 || !_items[0].IsBack) Fail($"{count} tiles, stack {index}: view has {_items.Count} tiles");
+                    if (SelectedIsBack || _items[_selected].Shown.Handle != stack.Shown.Handle) Fail($"{count} tiles, stack {index}: wrong window selected");
+                    foreach (var overlay in shown)
                     {
-                        var (handle, rects) = shown[m].Query(w => { w.UpdateLayout(); return (w.ShownHandle(index), w.TileRects); });
-                        checks += 2;
-                        if (handle != _items[index].Shown.Handle)
-                            Fail($"{count} tiles, {shown[m].Monitor.DeviceName}, cycle stack {index}: tile shows the wrong window");
-                        if (!before[m].SequenceEqual(rects))
-                            Fail($"{count} tiles, {shown[m].Monitor.DeviceName}, cycle stack {index}: tiles moved");
+                        var (tiles, back) = overlay.Query(w => (w.TileRects.Count, w.ShownHandle(0)));
+                        checks++;
+                        if (tiles != stack.Count + 1 || back != IntPtr.Zero)
+                            Fail($"{count} tiles, {overlay.Monitor.DeviceName}, stack {index}: {tiles} tiles drawn, first is {(back == IntPtr.Zero ? "Back" : "a window")}");
                     }
-                    CycleStack(-1); // back to the first window
-                    checks++;
-                    if (_items[index].Current != 0) Fail($"cycle back on stack {index}");
+                    CloseStack();
+                    checks += 2;
+                    if (_openStack is not null || _items.Count != count) Fail($"{count} tiles, stack {index}: Back left {_items.Count} tiles");
+                    if (_selected != index) Fail($"{count} tiles, stack {index}: Back selected tile {_selected}");
                 }
+
+                // Resting: on a stack opens it, on Back goes back, and coming back doesn't reopen it.
+                int firstStack = mainItems.FindIndex(i => i.IsStack);
+                if (firstStack >= 0 && count > 1)
+                {
+                    int savedDelay = _stackDelayMs;
+                    _stackDelayMs = 60;
+                    Select(firstStack == 0 ? 1 : 0);
+                    Select(firstStack);
+                    await Task.Delay(400);
+                    checks++;
+                    if (_openStack is null) Fail($"{count} tiles: resting on a stack didn't open it");
+                    Select(0); // Back
+                    await Task.Delay(400);
+                    checks += 2;
+                    if (_openStack is not null) Fail($"{count} tiles: resting on Back didn't go back");
+                    if (_selected != firstStack) Fail($"{count} tiles: Back selected tile {_selected}, not the stack");
+                    await Task.Delay(400);
+                    checks++;
+                    if (_openStack is not null) Fail($"{count} tiles: the stack reopened by itself after Back");
+                    _stackDelayMs = savedDelay;
+                }
+                _testItems = null;
+                PlanForTest(mainItems);
 
                 // Home / End / Page Up / Page Down, checked against the tile positions and the
                 // number of rows the viewport really shows.
@@ -258,6 +288,9 @@ internal sealed partial class SwitcherController
     }
 
     /// <summary>A shared plan over every monitor for synthetic tiles (self-test).</summary>
+    /// <summary>--selftest: synthetic tiles that PlanSession uses instead of the real windows (so stacks can be opened).</summary>
+    private List<SwitcherItem>? _testItems;
+
     private void PlanForTest(List<SwitcherItem> items)
     {
         EnsureOverlays();

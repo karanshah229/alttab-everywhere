@@ -51,9 +51,9 @@ dotnet run --project tools/IconGen
 | Page Up / Page Down | A screenful of rows up or down, stopping at the top and bottom |
 | 1–9 | Switch to that tile (the number shows on the tile). Set `numberKeys` to `"select"` or `"off"` |
 | Type letters | Search titles and app names; the tiles filter as you type. Works while holding Alt |
-| Backspace | Remove the last typed character |
-| Alt+` / Alt+Shift+` | In stacked mode: cycle through the windows of the selected app. The badge shows "2/3". This is the key above Tab, whatever symbol your keyboard layout puts on it |
-| Release Alt, or press Enter | Switch to the selected window |
+| Backspace | Remove the last typed character. With nothing typed, in an open stack: go back to every window |
+| Pause on a stack, Alt+`, or click its badge | In stacked mode: open the selected app's stack. Its windows become the tiles, after a **Back** tile, and the window the stack showed stays selected, so letting go of Alt still picks it. Pausing on Back (or Enter, a click, or Backspace) shows every window again. ` is the key above Tab, whatever symbol your keyboard layout puts on it; in an open stack it moves to the next window |
+| Release Alt, or press Enter | Switch to the selected window. Releasing Alt on Back switches nowhere, like Esc |
 | Esc | Clear the search; with no search, close without switching |
 | Delete | Close the selected window. The app can still ask to save. The switcher stays open |
 | Click a tile | Switch to that window |
@@ -103,7 +103,8 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 |---|---|---|
 | `listWindowsFrom` | `"allMonitors"` | `"allMonitors"`: every switcher lists every window. `"thisMonitor"`: each monitor's switcher lists only the windows on that monitor. Click a tile on any screen to switch to it. If the monitor you're using has no windows, its switcher lists all of them so Alt+Tab still works |
 | `virtualDesktops` | `"current"` | `"current"` or `"all"`. Windows on other desktops show their icon instead of a preview |
-| `groupWindows` | `"separate"` | `"separate"`: one tile per window. `"stacked"`: one tile per app, with a ×N badge; Alt+` picks a window inside the stack. Apps are told apart by their shell app ID, so Chrome profiles stay separate |
+| `groupWindows` | `"separate"` | `"separate"`: one tile per window. `"stacked"`: one tile per app, with a ×N badge; open a stack to pick one of its windows (see `stackOpenDelayMs`). A shortcut with `"windows": "currentApp"` always lists one tile per window. Apps are told apart by their shell app ID, so Chrome profiles stay separate |
+| `stackOpenDelayMs` | `500` | In stacked mode, pausing this long on a stack opens it, and pausing this long on its Back tile goes back. 0–5000; 0 turns pausing off (Alt+` and the badge still open a stack, and Enter, a click or Backspace on Back still go back). The timer only runs while the switcher is open and a stack (or Back) is selected, and never while you're typing a search |
 | `excludedApps` | `[]` | Apps never listed. Each entry can be an executable name (`"notepad.exe"` or `"notepad"`), a full path, or a shell app ID (see `--list`) |
 | `excludedTitles` | `[]` | Windows never listed if their title contains any of these. Not case-sensitive |
 
@@ -161,7 +162,7 @@ Example:
 }
 ```
 
-Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on every desktop, and Alt+` cycles through the windows of the app you're in. Inside an Alt+Tab session, Alt+` still cycles through a stack.
+Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on every desktop, and Alt+` cycles through the windows of the app you're in. Inside an Alt+Tab session, Alt+` opens the selected stack instead.
 
 ## How it works
 
@@ -226,7 +227,7 @@ To test the real switcher, run `--selftest`. It opens the switcher on every moni
 - for every tile and every arrow, Home, End, Page Up and Page Down key, where the selection lands against where the tiles actually are on each screen;
 - that the selection is always scrolled into view;
 - that the switcher stays within the 75% × 75% cap;
-- that cycling a stack shows the right window without moving any tiles;
+- that opening a stack shows a Back tile and its windows on every screen, with the stack's window still selected, that Back returns to the stack's tile, and that pausing on a stack opens it, pausing on Back goes back, and the stack doesn't reopen by itself;
 - with each monitor listing its own windows, that no screen lists another screen's windows;
 - typing searches (real words from window titles, a two-word search and one that matches nothing): the tile count on every screen, the search bar, the size cap, number keys while filtered, and that Backspace brings back the full list.
 

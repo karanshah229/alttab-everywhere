@@ -217,7 +217,9 @@ internal sealed class SettingsWindow : Window
         Number("Show delay (ms)", "Quick taps switch without showing it. 0–2000.", "showDelayMs", _s.ShowDelayMs, 0, 2000);
         Choice("List windows from", "", "listWindowsFrom", _s.ListWindowsFrom, ListFromOptions);
         Choice("Virtual desktops", "", "virtualDesktops", _s.VirtualDesktops, DesktopOptions);
-        Choice("Group windows", "Alt+` cycles through a stack.", "groupWindows", _s.GroupWindows, GroupOptions);
+        Choice("Group windows", "Pause on a stack, press ` or click its badge to see its windows.", "groupWindows", _s.GroupWindows, GroupOptions);
+        Number("Open a stack after (ms)", "Pausing on a stack (or Back) this long opens it (or goes back). 0: off. 0–5000.",
+            "stackOpenDelayMs", _s.StackOpenDelayMs, 0, 5000);
 
         Section("Filters");
         Lines("Excluded apps", "One per line: name, path or app ID.", "excludedApps", _s.ExcludedApps);

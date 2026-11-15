@@ -47,15 +47,42 @@ public class WindowGroupingTests
     }
 
     [Fact]
-    public void Cycling_wraps_both_ways_and_changes_the_shown_window()
+    public void An_open_stack_shows_Back_then_each_window_in_MRU_order()
     {
-        var outlook = Stacked()[2];
-        outlook.Cycle(+1);
-        Assert.Equal(6, (int)outlook.Shown.Handle);
-        outlook.Cycle(+1);
-        Assert.Equal(3, (int)outlook.Shown.Handle);
-        outlook.Cycle(-1);
-        Assert.Equal(6, (int)outlook.Shown.Handle);
+        var view = WindowGrouping.StackView(Stacked()[2], _ => true);
+        Assert.True(view[0].IsBack);
+        Assert.Empty(view[0].Windows);
+        Assert.Equal(new[] { 3, 6 }, view.Skip(1).Select(i => (int)i.Shown.Handle));
+        Assert.All(view.Skip(1), i => Assert.False(i.IsStack));
+    }
+
+    [Fact]
+    public void An_open_stack_drops_windows_no_longer_listed()
+    {
+        var view = WindowGrouping.StackView(Stacked()[2], w => w.Handle != new IntPtr(3));
+        Assert.Equal(new[] { 6 }, view.Skip(1).Select(i => (int)i.Shown.Handle));
+        Assert.Single(WindowGrouping.StackView(Stacked()[2], _ => false)); // Back alone: the caller closes it
+    }
+
+    [Fact]
+    public void Number_keys_skip_the_Back_tile()
+    {
+        var view = WindowGrouping.StackView(Stacked()[2], _ => true);
+        Assert.Equal(0, SwitcherItem.NumberOf(view, 0));        // Back has no number
+        Assert.Equal(1, SwitcherItem.NumberOf(view, 1));
+        Assert.Equal(1, SwitcherItem.IndexOfNumber(view, 1));   // 1 = first window, not Back
+        Assert.Equal(-1, SwitcherItem.IndexOfNumber(view, 3));  // only two windows
+    }
+
+    [Fact]
+    public void Number_keys_without_Back_count_from_the_first_tile()
+    {
+        var items = Stacked();
+        Assert.Equal(1, SwitcherItem.NumberOf(items, 0));
+        Assert.Equal(0, SwitcherItem.IndexOfNumber(items, 1));
+        var many = Enumerable.Range(1, 12).Select(i => new SwitcherItem(new[] { W(i, "a") })).ToList();
+        Assert.Equal(0, SwitcherItem.NumberOf(many, 9));        // only 1–9
+        Assert.Equal(-1, SwitcherItem.IndexOfNumber(many, 0));
     }
 
     [Fact]
