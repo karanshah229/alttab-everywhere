@@ -44,7 +44,7 @@ internal sealed class SettingsWindow : Window
 
     private Settings _s;
     private readonly TabControl _tabs = new() { Margin = new Thickness(12, 8, 12, 0), BorderThickness = new Thickness(0), Background = Brushes.Transparent };
-    private readonly List<(StackPanel Page, List<string> Keys)> _pages = new();
+    private readonly List<List<string>> _tabKeys = new(); // the settings keys on each tab, for "Reset tab"
     private StackPanel _page = new(); // the tab Build() is filling
     private List<string> _pageKeys = new();
     private StackPanel _shortcutRows = new();
@@ -168,14 +168,23 @@ internal sealed class SettingsWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 16, 0),
         };
+        // Resets only the keys on the open tab.
+        var reset = new Button { Content = "Reset tab to defaults", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+        reset.Click += (_, _) =>
+        {
+            if (_tabs.SelectedIndex >= 0 && _tabs.SelectedIndex < _tabKeys.Count) Reset(_tabKeys[_tabs.SelectedIndex]);
+        };
         var openFile = new Button { Content = "Open settings.json", VerticalAlignment = VerticalAlignment.Center };
         openFile.Click += (_, _) => TrayIcon.OpenSettingsFile();
 
         var footer = new Grid { Margin = new Thickness(24, 10, 24, 14) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(openFile, 1);
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(reset, 1);
+        Grid.SetColumn(openFile, 2);
         footer.Children.Add(note);
+        footer.Children.Add(reset);
         footer.Children.Add(openFile);
 
         var root = new DockPanel();
@@ -245,21 +254,6 @@ internal sealed class SettingsWindow : Window
 
         Section("System");
         Toggle("Start with Windows", "No admin rights needed.", "startWithWindows", _s.StartWithWindows);
-        var resetAll = new Button { Content = "Reset all settings…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0) };
-        resetAll.Click += (_, _) =>
-        {
-            if (MessageBox.Show(this, "Reset every setting to its default?", WindowTitle, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
-                Reset(EditableKeys.ToList());
-        };
-        _page.Children.Add(resetAll);
-
-        // A "Reset tab" button at the end of each tab, for the keys on that tab.
-        foreach (var (page, keys) in _pages)
-        {
-            var reset = new Button { Content = "Reset tab to defaults", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
-            reset.Click += (_, _) => Reset(keys);
-            page.Children.Add(reset);
-        }
     }
 
     /// <summary>Writes the default value of each key, then rebuilds the window from the file.</summary>
@@ -271,7 +265,7 @@ internal sealed class SettingsWindow : Window
 
         int tab = _tabs.SelectedIndex;
         _tabs.Items.Clear();
-        _pages.Clear();
+        _tabKeys.Clear();
         _shortcuts.Clear();
         _onThemeChanged.Clear();
         EditableKeys.Clear();
@@ -296,7 +290,7 @@ internal sealed class SettingsWindow : Window
     {
         _page = new StackPanel { Margin = new Thickness(12, 12, 20, 16) };
         _pageKeys = new List<string>();
-        _pages.Add((_page, _pageKeys));
+        _tabKeys.Add(_pageKeys);
         var tab = new TabItem
         {
             Header = title,
