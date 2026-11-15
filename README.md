@@ -105,6 +105,10 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | `virtualDesktops` | `"current"` | `"current"` or `"all"`. Windows on other desktops show their icon instead of a preview |
 | `groupWindows` | `"separate"` | `"separate"`: one tile per window. `"stacked"`: one tile per app, with a ×N badge; open a stack to pick one of its windows (see `stackOpenDelayMs`). A shortcut with `"windows": "currentApp"` always lists one tile per window. Apps are told apart by their shell app ID, so Chrome profiles stay separate |
 | `stackOpenDelayMs` | `500` | In stacked mode, pausing this long on a stack opens it, and pausing this long on its Back tile goes back. 0–5000; 0 turns pausing off (Alt+` and the badge still open a stack, and Enter, a click or Backspace on Back still go back). The timer only runs while the switcher is open and a stack (or Back) is selected, and never while you're typing a search |
+| `peek` | `"outline"` | `"outline"`: while the switcher is open, a coloured ring is drawn over the edge of the selected window, wherever it is, so you can see which window will come forward (handy on several screens). It sits on top of other windows but under the switcher. Minimized windows and windows on other desktops have no outline. `"off"`: no outline |
+| `peekDelayMs` | `0` | Resting on a tile this long before its outline appears; the outline is hidden while the selection moves. 0–5000 |
+| `peekBorderWidth` | `4` | Thickness of the outline, in device-independent pixels (scaled for each monitor). 1–20 |
+| `peekColor` | `""` | Outline colour as `"#RRGGBB"`; empty uses the accent colour |
 | `excludedApps` | `[]` | Apps never listed. Each entry can be an executable name (`"notepad.exe"` or `"notepad"`), a full path, or a shell app ID (see `--list`) |
 | `excludedTitles` | `[]` | Windows never listed if their title contains any of these. Not case-sensitive |
 
@@ -192,6 +196,7 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 | App stacks | Grouped by shell app ID, falling back to the executable path | `SwitcherItem.cs` |
 | Store app icons | `SHCreateItemInKnownFolder(FOLDERID_AppsFolder, appId)` and `IShellItemImageFactory::GetImage`, only for `ApplicationFrameWindow` windows | `Interop/AppIcons.cs` |
 | State badges | `IsIconic`, `IsHungAppWindow`, the process token's `TokenElevation` (checked once per process per opening, only while that badge is on), and the DWM cloak for other desktops | `StateBadges.cs`, `Interop/ProcessElevation.cs` |
+| Peek | A click-through popup (layered, `WS_EX_TRANSPARENT`) shaped into a ring with `SetWindowRgn` and painted by its class brush, placed on `DWMWA_EXTENDED_FRAME_BOUNDS` just below the switcher in the topmost band. Created on the first peek of a session and destroyed when the session ends | `Interop/PeekOutline.cs` |
 | Switch windows | `SetForegroundWindow`, with an `AttachThreadInput` fallback | `WindowActivator.cs` |
 
 ## Resource use
@@ -257,14 +262,15 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 - **Elevated (admin) windows:** while one has focus, the hook receives no keys, so Windows' own Alt+Tab appears instead. Fixing this needs a signed build with `uiAccess="true"` installed under Program Files.
 - **Minimized windows** show their icon instead of a live preview.
-- **Store/UWP apps** may show a generic icon.
+- **Store/UWP apps** show a generic icon when `storeAppIcons` is off.
+- **Peek** outlines a window where it was when the selection reached it: a window that moves while the switcher is open isn't followed. The outline stays under the switcher, so a window entirely behind the switcher shows no visible outline on that screen.
 - **Search ignores AltGr characters** (AltGr is Ctrl+Alt to Windows, and Ctrl combinations are left alone) and dead-key accents.
 - If the UI thread stalls, Windows can silently remove the hook. The app keeps running, but Windows' own Alt+Tab returns.
 - Tested with two monitors at different scaling (125% and 100%) using `--demo` and `--selftest`.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability) and 2 (find windows faster) are done. **Phase 3: looks and settings** is under way: the settings window, the app's own icon, light/dark themes, layout styles, Store-app icons and state badges are done; Peek, a "show desktop" tile and accessibility are next.
+See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability) and 2 (find windows faster) are done. **Phase 3: looks and settings** is under way: the settings window, the app's own icon, light/dark themes, layout styles, Store-app icons, state badges and Peek are done; a "show desktop" tile and accessibility are next.
 
 ## License
 

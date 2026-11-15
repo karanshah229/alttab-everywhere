@@ -39,6 +39,15 @@ internal enum GroupWindows
     Stacked,
 }
 
+/// <summary>How the selected window is shown where it really is while the switcher is open.</summary>
+internal enum PeekMode
+{
+    /// <summary>Nothing beyond the tile.</summary>
+    Off,
+    /// <summary>A coloured outline around the selected window, drawn on top of everything but the switcher.</summary>
+    Outline,
+}
+
 internal enum SwitcherLayout
 {
     /// <summary>Tiles with a title and a live preview (the default).</summary>
@@ -153,6 +162,18 @@ internal sealed class Settings
     /// </summary>
     public int StackOpenDelayMs { get; set; } = 500;
 
+    /// <summary>Peek: outline the selected window where it really is, so you can see which window will come forward.</summary>
+    public PeekMode Peek { get; set; } = PeekMode.Outline;
+
+    /// <summary>Resting on a tile this long shows its peek; 0 shows it straight away.</summary>
+    public int PeekDelayMs { get; set; }
+
+    /// <summary>Thickness of the peek outline, in device-independent pixels.</summary>
+    public double PeekBorderWidth { get; set; } = 4;
+
+    /// <summary>Peek outline colour: "#RRGGBB", or empty for the accent colour.</summary>
+    public string PeekColor { get; set; } = "";
+
     /// <summary>Apps never listed: executable names ("notepad.exe" or "notepad"), full paths, or app IDs.</summary>
     public List<string> ExcludedApps { get; set; } = new();
 
@@ -242,6 +263,10 @@ internal sealed class Settings
     {
         ShowDelayMs = Math.Clamp(ShowDelayMs, 0, 2000);
         StackOpenDelayMs = Math.Clamp(StackOpenDelayMs, 0, 5000);
+        PeekDelayMs = Math.Clamp(PeekDelayMs, 0, 5000);
+        PeekBorderWidth = Math.Clamp(PeekBorderWidth, 1, 20);
+        if (!Enum.IsDefined(Peek)) Peek = PeekMode.Outline;
+        PeekColor ??= "";
         TileWidth = Math.Clamp(TileWidth, 80, 600);
         ThumbnailHeight = Math.Clamp(ThumbnailHeight, 50, 400);
         IconSize = Math.Clamp(IconSize, 16, 128);

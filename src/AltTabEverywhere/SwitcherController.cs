@@ -23,6 +23,7 @@ internal sealed partial class SwitcherController : IDisposable
     private readonly DispatcherTimer _showTimer;
     private readonly DispatcherTimer _stackTimer; // resting on a stack opens it; on Back, goes back
     private readonly DispatcherTimer _displayChangeTimer;
+    private readonly DispatcherTimer _peekTimer; // peekDelayMs: resting on a tile this long shows its peek
     private readonly MemoryTrimmer _trimmer = new(TimeSpan.FromSeconds(2));
     private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
     private readonly List<OverlayHost> _overlays = new();
@@ -52,6 +53,7 @@ internal sealed partial class SwitcherController : IDisposable
     private int _stackReturnIndex;      // where that stack's tile was, to select it again on Back
     private bool _stackRequested;       // the key above Tab before the tiles were built: open once they are
     private int _stackDelayMs;          // stackOpenDelayMs (0 = only the key and the badge open a stack)
+    private PeekOutline? _peek;         // the peek outline; created on the first peek of a session, destroyed at its end
 
     private List<(Shortcut Shortcut, ShortcutKeys Keys)> _shortcuts = new();
 
@@ -64,6 +66,8 @@ internal sealed partial class SwitcherController : IDisposable
         _showTimer.Tick += (_, _) => RevealUi();
         _stackTimer = new DispatcherTimer();
         _stackTimer.Tick += (_, _) => OnStackTimer();
+        _peekTimer = new DispatcherTimer();
+        _peekTimer.Tick += (_, _) => { _peekTimer.Stop(); ShowPeek(); };
         _displayChangeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _displayChangeTimer.Tick += (_, _) =>
         {
@@ -440,6 +444,7 @@ internal sealed partial class SwitcherController : IDisposable
             // A monitor coming back mid-session may still be cloaked from an earlier build.
             if (_uiShown && previous.All(p => p.Host != entry.Host)) entry.Host.Reveal();
         }
+        UpdatePeek();
     }
 
     /// <summary>Builds every planned overlay in parallel (each on its own thread), cloaked.</summary>
@@ -502,6 +507,8 @@ internal sealed partial class SwitcherController : IDisposable
         // (b) we're the foreground process, so Windows lets us activate the chosen window later.
         if (_focusOverlay is not null) WindowActivator.Activate(_focusOverlay.Handle);
         _timing?.Mark("activated");
+        // After taking focus, so the outline never delays the switcher itself.
+        _dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(UpdatePeek));
     }
 
     private async Task WaitUntilShown(int timeoutMs = 3000)
@@ -686,10 +693,67 @@ internal sealed partial class SwitcherController : IDisposable
         _hook.BackSelected = SelectedIsBack;
         foreach (var entry in _plan)
             if (entry.MirrorsSelection) entry.Host.Select(_selected);
-        if (moved) RestartStackTimer();
+        if (moved)
+        {
+            RestartStackTimer();
+            UpdatePeek();
+        }
     }
 
     private bool SelectedIsBack => _selected >= 0 && _selected < _items.Count && _items[_selected].IsBack;
+
+    // ---- Peek ----
+
+    /// <summary>Moves the peek outline to the selection, now or after peekDelayMs. Only while the switcher can be seen.</summary>
+    private void UpdatePeek()
+    {
+        _peekTimer.Stop();
+        if (!_active || !_uiShown || Settings.Peek == PeekMode.Off || PeekTarget() == IntPtr.Zero)
+        {
+            _peek?.Hide();
+            return;
+        }
+        if (Settings.PeekDelayMs <= 0)
+        {
+            ShowPeek();
+            return;
+        }
+        _peek?.Hide(); // moving: hide until the selection rests
+        _peekTimer.Interval = TimeSpan.FromMilliseconds(Settings.PeekDelayMs);
+        _peekTimer.Start();
+    }
+
+    /// <summary>The selected window, if it has a place on this desktop to outline.</summary>
+    private IntPtr PeekTarget()
+    {
+        if (_selected < 0 || _selected >= _items.Count || _items[_selected].IsBack) return IntPtr.Zero;
+        var window = _items[_selected].Shown;
+        return window.IsMinimized || window.OnOtherDesktop ? IntPtr.Zero : window.Handle;
+    }
+
+    private void ShowPeek()
+    {
+        IntPtr target = PeekTarget();
+        if (!_active || !_uiShown || target == IntPtr.Zero) return;
+        try
+        {
+            var settings = Settings;
+            var color = Theme.TryParseColor(settings.PeekColor, out var custom) ? custom : Theme.Current.AccentColor;
+            _peek ??= new PeekOutline();
+            _peek.Show(target, color, settings.PeekBorderWidth, _plan.Select(p => p.Host.Handle).ToList());
+        }
+        catch (Exception ex)
+        {
+            Log.Error("peek", ex);
+        }
+    }
+
+    private void EndPeek()
+    {
+        _peekTimer.Stop();
+        _peek?.Dispose();
+        _peek = null;
+    }
 
     // ---- App stacks (groupWindows = stacked) ----
 
@@ -799,6 +863,7 @@ internal sealed partial class SwitcherController : IDisposable
         _revealRequested = false;
         _showTimer.Stop();
         _stackTimer.Stop();
+        EndPeek();
         _openStack = null;
         _stackRequested = false;
         _testItems = null;
@@ -838,6 +903,7 @@ internal sealed partial class SwitcherController : IDisposable
         _hook.Dispose();
         _showTimer.Stop();
         _stackTimer.Stop();
+        EndPeek();
         _displayChangeTimer.Stop();
         DiscardOverlays();
     }

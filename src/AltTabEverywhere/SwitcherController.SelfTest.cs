@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using AltTabEverywhere.Interop;
 
 namespace AltTabEverywhere;
 
@@ -46,6 +47,8 @@ internal sealed partial class SwitcherController
             {
                 _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
                 _settingsOverride.Layout = layout;
+                _settingsOverride.Peek = PeekMode.Outline;
+                _settingsOverride.PeekDelayMs = 0;
                 layoutTag = $"[{layout}] ";
                 // Repeat real windows to reach the target count; geometry is all that matters here.
                 // Every third tile is a two-window stack so badges and stack cycling are covered too.
@@ -89,6 +92,27 @@ internal sealed partial class SwitcherController
                         Select(0);
                     }
                 }
+
+                // Peek: the outline follows the selection, sits under every switcher window, and is
+                // there whenever the selected window has a visible place to outline.
+                foreach (int index in new[] { 0, count - 1, count / 2 }.Distinct())
+                {
+                    Select(index);
+                    UpdatePeek(); // (Select only moves it when the selection changes)
+                    var window = _items[index].Shown;
+                    bool outlinable = !window.IsMinimized && !window.OnOtherDesktop && Native.IsWindowVisible(window.Handle) && !Native.IsIconic(window.Handle);
+                    IntPtr peeked = _peek?.Target ?? IntPtr.Zero;
+                    checks++;
+                    if (outlinable && peeked != window.Handle) Fail($"{count} tiles, tile {index}: peek {(peeked == IntPtr.Zero ? "not shown" : "on another window")}");
+                    if (!outlinable && peeked != IntPtr.Zero) Fail($"{count} tiles, tile {index}: peek shown for a minimized window");
+                    if (peeked != IntPtr.Zero)
+                    {
+                        checks += 2;
+                        if (!_peek!.IsVisible) Fail($"{count} tiles, tile {index}: peek window hidden");
+                        if (!_peek.IsBelowAll(shown.Select(o => o.Handle).ToList())) Fail($"{count} tiles, tile {index}: peek drawn over the switcher");
+                    }
+                }
+                Select(0);
 
                 // Stacks: opening one shows a Back tile and its windows on every monitor, with the
                 // window the stack's tile showed still selected; Back returns to the stack's tile.
@@ -207,6 +231,8 @@ internal sealed partial class SwitcherController
                     }
                 }
                 End();
+                checks++;
+                if (_peek is not null) Fail($"{count} tiles: peek outline left behind after the switcher closed");
             }
 
             // State badges, in every layout: a window in every state shows all four on every monitor,
