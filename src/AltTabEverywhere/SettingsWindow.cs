@@ -229,6 +229,8 @@ internal sealed class SettingsWindow : Window
         Number("Peek outline width", "1–20.", "peekBorderWidth", _s.PeekBorderWidth, 1, 20);
         Colour("Peek colour", "Empty: accent colour.", "peekColor", _s.PeekColor, "", t => t.AccentColor);
         Toggle("Show desktop tile", "A last tile that clears the screen, like Win+D.", "showDesktopTile", _s.ShowDesktopTile);
+        SwitcherKeyRow("Move here key", "Switch and bring the window to this monitor.", "moveHereKey", _s.MoveHereKey);
+        Toggle("Ctrl+click moves here", "Ctrl+click a tile to bring its window to that monitor.", "ctrlClickMovesHere", _s.CtrlClickMovesHere);
 
         Section("Filters");
         Lines("Excluded apps", "One per line: name, path or app ID.", "excludedApps", _s.ExcludedApps);
@@ -398,6 +400,35 @@ internal sealed class SettingsWindow : Window
             if (combo.SelectedItem is ComboBoxItem { Tag: T chosen }) Save(key, SettingsStore.ToNode(chosen));
         };
         Row(label, description, combo);
+    }
+
+    /// <summary>A key pressed inside the switcher (moveHereKey): pick a suggestion or type one; "Off" turns it off.</summary>
+    private void SwitcherKeyRow(string label, string description, string key, string value)
+    {
+        Track(key);
+        var combo = new ComboBox { IsEditable = true, MinWidth = 240, Text = string.IsNullOrWhiteSpace(value) ? "Off" : value };
+        foreach (var suggestion in new[] { "Shift+Enter", "Ctrl+Enter", "Insert", "F2", "Off" }) combo.Items.Add(suggestion);
+        var error = new TextBlock { Text = "Try Shift+Enter, Insert, F2 or Off", Foreground = Brushes.IndianRed, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 2, 0, 0) };
+        string last = combo.Text;
+        void Commit()
+        {
+            string text = combo.Text.Trim();
+            if (text == last) return;
+            bool off = text.Length == 0 || text.Equals("off", StringComparison.OrdinalIgnoreCase);
+            bool valid = off || SwitcherKey.TryParse(text, out _);
+            error.Visibility = valid ? Visibility.Collapsed : Visibility.Visible;
+            if (!valid) return;
+            last = text;
+            Save(key, JsonValue.Create(off ? "off" : text));
+        }
+        combo.SelectionChanged += (_, _) => Dispatcher.BeginInvoke(new Action(Commit)); // Text updates after the event
+        combo.LostKeyboardFocus += (_, _) => Commit();
+        combo.KeyDown += (_, e) => { if (e.Key == Key.Enter) Commit(); };
+        var stack = new StackPanel();
+        stack.Children.Add(combo);
+        stack.Children.Add(error);
+        AutomationName(combo, label);
+        Row(label, description, stack);
     }
 
     private static ComboBox ComboFor<T>(T value, (T Value, string Text)[] options) where T : struct, Enum

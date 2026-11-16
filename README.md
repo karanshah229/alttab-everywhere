@@ -57,6 +57,8 @@ dotnet run --project tools/IconGen
 | Esc | Clear the search; with no search, close without switching |
 | Delete | Close the selected window. The app can still ask to save. The switcher stays open |
 | Click a tile | Switch to that window |
+| Shift+Enter (`moveHereKey`) | Switch to the selected window **and bring it to this monitor**: the one whose switcher the keyboard drives (under the mouse, by default). It keeps its size and relative place, and a maximized window is maximized there |
+| Ctrl+click a tile | Switch to that window and bring it to the monitor of the switcher you clicked. With a switcher on every screen, that pulls any window to where you are |
 | Middle-click a tile, or click its × | Close that window |
 | Mouse wheel | Scroll, when there are more windows than fit |
 | Click outside the switcher | Close it |
@@ -110,6 +112,8 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | `peekBorderWidth` | `4` | Thickness of the outline, in device-independent pixels (scaled for each monitor). 1–20 |
 | `peekColor` | `""` | Outline colour as `"#RRGGBB"`; empty uses the accent colour |
 | `showDesktopTile` | `false` | A **Show desktop** tile after the windows, on every switcher. Picking it (Enter, a click, letting go of Alt, or its number) closes the switcher and shows the desktop, like Win+D, through the shell's `ToggleDesktop`; if the desktop already had focus it simply stays. A session never starts on it, Delete doesn't close it, and while searching it's listed only if "Show desktop" matches what you typed |
+| `moveHereKey` | `"Shift+Enter"` | While the switcher is open, this key switches to the selected window and moves it to the monitor whose switcher the keyboard drives. Same size (shrunk only if it doesn't fit) and the same relative place, like Win+Shift+Arrow; maximized windows are maximized there and minimized ones restored there. Accepts Enter, Insert, Space, F1–F24 or a letter, with Shift and/or Ctrl (a letter takes that letter away from the search). `"off"` turns it off. Frozen windows, and windows running as administrator unless this app is too, can't be moved; they're just switched to |
+| `ctrlClickMovesHere` | `true` | Ctrl+click on a tile switches to that window and moves it to the monitor of the switcher you clicked |
 | `excludedApps` | `[]` | Apps never listed. Each entry can be an executable name (`"notepad.exe"` or `"notepad"`), a full path, or a shell app ID (see `--list`) |
 | `excludedTitles` | `[]` | Windows never listed if their title contains any of these. Not case-sensitive |
 
@@ -201,6 +205,7 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 | State badges | `IsIconic`, `IsHungAppWindow`, the process token's `TokenElevation` (checked once per process per opening, only while that badge is on), and the DWM cloak for other desktops | `StateBadges.cs`, `Interop/ProcessElevation.cs` |
 | Peek | A click-through popup (layered, `WS_EX_TRANSPARENT`) shaped into a ring with `SetWindowRgn` and painted by its class brush, placed on `DWMWA_EXTENDED_FRAME_BOUNDS` just below the switcher in the topmost band. Created on the first peek of a session and destroyed when the session ends | `Interop/PeekOutline.cs` |
 | Show desktop tile | `Shell.Application` (`IShellDispatch4::ToggleDesktop`), created when the tile is picked and released straight after | `Interop/ShellDesktop.cs` |
+| Move here | `GetWindowPlacement` / `SetWindowPlacement` with the normal position mapped onto the new work area (workspace coordinates allowed for), then `SW_MAXIMIZE` for maximized windows | `Interop/WindowMover.cs` |
 | Accessibility | Tiles are UI Automation list items (`TileBorder`, `TilePanel`) named from their window, with `PositionInSet`/`SizeOfSet`; focus follows the selection; "No windows match" is a live region. Contrast theme read with `SPI_GETHIGHCONTRAST` and `GetSysColor`, refreshed on `WM_SYSCOLORCHANGE` | `TileAutomation.cs`, `Theme.cs` |
 | Switch windows | `SetForegroundWindow`, with an `AttachThreadInput` fallback | `WindowActivator.cs` |
 
@@ -275,7 +280,7 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability), 2 (find windows faster) and 3 (looks and settings) are done. Next up is **Phase 4: multi-monitor power tools**.
+See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability), 2 (find windows faster) and 3 (looks and settings) are done. **Phase 4: multi-monitor power tools** is under way: moving a window to this monitor is done; window actions, sorting and grouping, and previews for minimized windows are next.
 
 ## License
 

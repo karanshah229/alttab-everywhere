@@ -177,6 +177,15 @@ internal sealed class Settings
     /// <summary>A "Show desktop" tile after the windows; picking it shows the desktop, like Win+D.</summary>
     public bool ShowDesktopTile { get; set; }
 
+    /// <summary>
+    /// While the switcher is open, this key switches to the selected window and moves it to the
+    /// monitor whose switcher the keyboard drives. "Shift+Enter", "Insert", "F2"... or "off".
+    /// </summary>
+    public string MoveHereKey { get; set; } = "Shift+Enter";
+
+    /// <summary>Ctrl+click on a tile switches to that window and moves it to the monitor of the switcher you clicked.</summary>
+    public bool CtrlClickMovesHere { get; set; } = true;
+
     /// <summary>Apps never listed: executable names ("notepad.exe" or "notepad"), full paths, or app IDs.</summary>
     public List<string> ExcludedApps { get; set; } = new();
 
@@ -277,6 +286,7 @@ internal sealed class Settings
         if (!Enum.IsDefined(Peek)) Peek = PeekMode.Outline;
         if (!Enum.IsDefined(HighContrast)) HighContrast = HighContrastMode.System;
         PeekColor ??= "";
+        MoveHereKey ??= "";
         TileWidth = Math.Clamp(TileWidth, 80, 600);
         ThumbnailHeight = Math.Clamp(ThumbnailHeight, 50, 400);
         IconSize = Math.Clamp(IconSize, 16, 128);

@@ -80,6 +80,12 @@ internal sealed class KeyboardHook : IDisposable
 
     public bool NumberKeys { get; set; } = true;
 
+    /// <summary>moveHereKey: switch to the selection and bring it to this monitor. Null: none.</summary>
+    public SwitcherKey? MoveHereKey { get; set; }
+
+    /// <summary>The move-here key was pressed (the session has ended, as for Enter).</summary>
+    public event Action? MoveHere;
+
     public KeyboardHook()
     {
         _proc = HookProc;
@@ -193,6 +199,22 @@ internal sealed class KeyboardHook : IDisposable
             bool reverse = ReverseHeld(session.Modifiers);
             int index = _session;
             Post(() => Shortcut?.Invoke(index, false, reverse));
+            return SwallowDown(vk);
+        }
+
+        // moveHereKey (Shift+Enter by default): like Enter, plus bringing the window to this monitor.
+        // Shift or Ctrl count only when the session's own shortcut doesn't already hold them.
+        if (MoveHereKey is { } move && vk == move.VirtualKey &&
+            ((session.Modifiers & KeyModifiers.Shift) != 0 || IsDown(VK_SHIFT) == move.Shift) &&
+            ((session.Modifiers & KeyModifiers.Ctrl) != 0 || IsDown(VK_CONTROL) == move.Ctrl))
+        {
+            if (BackSelected)
+            {
+                Post(() => StackBack?.Invoke()); // on Back it just goes back, like Enter
+                return SwallowDown(vk);
+            }
+            EndSession();
+            Post(() => MoveHere?.Invoke());
             return SwallowDown(vk);
         }
 

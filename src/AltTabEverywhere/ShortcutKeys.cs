@@ -112,3 +112,46 @@ internal readonly record struct ShortcutKeys(KeyModifiers Modifiers, int Virtual
         return mods + key;
     }
 }
+
+/// <summary>
+/// A key pressed while the switcher is open, such as "Shift+Enter", "Insert" or "F2" (moveHereKey).
+/// Only Shift and Ctrl may be added: the switcher's own modifier is already held.
+/// </summary>
+internal readonly record struct SwitcherKey(int VirtualKey, bool Shift, bool Ctrl)
+{
+    public const int VK_RETURN = 0x0D, VK_INSERT = 0x2D;
+
+    /// <summary>Parses the setting; empty or "off" means no key (returns false).</summary>
+    public static bool TryParse(string? text, out SwitcherKey key)
+    {
+        key = default;
+        if (string.IsNullOrWhiteSpace(text) || text.Trim().Equals("off", StringComparison.OrdinalIgnoreCase)) return false;
+        bool shift = false, ctrl = false;
+        int vk = 0;
+        foreach (string raw in text.Split('+'))
+        {
+            string token = raw.Trim().ToLowerInvariant();
+            switch (token)
+            {
+                case "shift" when !shift: shift = true; continue;
+                case "ctrl" or "control" when !ctrl: ctrl = true; continue;
+            }
+            if (vk != 0) return false; // two keys
+            vk = token switch
+            {
+                "enter" or "return" => VK_RETURN,
+                "insert" or "ins" => VK_INSERT,
+                "space" => ShortcutKeys.VK_SPACE,
+                _ when token.Length == 1 && token[0] is >= 'a' and <= 'z' => char.ToUpperInvariant(token[0]),
+                _ when token.Length is 2 or 3 && token[0] == 'f' && int.TryParse(token.AsSpan(1), out int f) && f is >= 1 and <= 24 => 0x70 + f - 1,
+                _ => 0,
+            };
+            if (vk == 0) return false;
+        }
+        if (vk == 0) return false;
+        // Plain Enter already switches; moving needs something on top of it.
+        if (vk == VK_RETURN && !shift && !ctrl) return false;
+        key = new SwitcherKey(vk, shift, ctrl);
+        return true;
+    }
+}

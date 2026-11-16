@@ -81,6 +81,7 @@ internal sealed partial class SwitcherController : IDisposable
         _hook.Jump += Jump;
         _hook.StackKey += OnStackKey;
         _hook.StackBack += CloseStack;
+        _hook.MoveHere += MoveSelectedHere;
         _hook.CloseSelected += CloseSelected;
         _hook.ModifiersReleased += OnModifiersReleased;
         _hook.Commit += Commit;
@@ -126,6 +127,7 @@ internal sealed partial class SwitcherController : IDisposable
         _hook.DeleteCloses = settings.DeleteKeyCloses;
         _hook.TypeToSearch = settings.TypeToSearch;
         _hook.NumberKeys = settings.NumberKeys != NumberKeys.Off;
+        _hook.MoveHereKey = SwitcherKey.TryParse(settings.MoveHereKey, out var moveKey) ? moveKey : null;
         _showTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, settings.ShowDelayMs));
         _stackDelayMs = settings.StackOpenDelayMs;
         Theme.Rebuild(settings);
@@ -550,6 +552,7 @@ internal sealed partial class SwitcherController : IDisposable
             overlay.TileCloseRequested += index => OnTileCloseRequested(overlay, index);
             overlay.TileHovered += index => OnTileHovered(overlay, index);
             overlay.TileBadgeClicked += index => OnTileBadgeClicked(overlay, index);
+            overlay.TileMoveHereClicked += index => OnTileMoveHereClicked(overlay, index);
             overlay.Deactivated += OnOverlayDeactivated;
             _overlays.Add(overlay);
         }
@@ -870,6 +873,50 @@ internal sealed partial class SwitcherController : IDisposable
     {
         if (!_active) return;
         if (_uiShown) WindowActivator.Activate(_originalForeground);
+        End();
+    }
+
+    /// <summary>
+    /// moveHereKey: switch to the selected window and bring it to the monitor whose switcher the
+    /// keyboard drives. On Back or Show desktop it does what Enter does.
+    /// </summary>
+    private void MoveSelectedHere()
+    {
+        if (!_active) return;
+        if (_selected < 0 || _selected >= _items.Count || !_items[_selected].HasWindow)
+        {
+            Commit();
+            return;
+        }
+        var monitor = _focusOverlay?.Monitor
+                      ?? Monitors.GetAll().FirstOrDefault(m => m.Handle == Monitors.UnderCursor());
+        MoveHereAndSwitch(_items[_selected].Shown.Handle, monitor);
+    }
+
+    /// <summary>Ctrl+click: switch to that tile's window and bring it to the monitor of the switcher clicked.</summary>
+    private void OnTileMoveHereClicked(OverlayHost host, int index)
+    {
+        if (!_active) return;
+        if (ItemAt(host, index) is not { HasWindow: true } item)
+        {
+            OnTileClicked(host, index); // Back, Show desktop: an ordinary click
+            return;
+        }
+        MoveHereAndSwitch(item.Shown.Handle, host.Monitor);
+    }
+
+    private void MoveHereAndSwitch(IntPtr hwnd, MonitorInfo? monitor)
+    {
+        try
+        {
+            if (monitor is not null && !WindowMover.MoveTo(hwnd, monitor))
+                Log.Info("move here: the window couldn't be moved (it may be frozen or running as administrator)");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("move here", ex);
+        }
+        WindowActivator.Activate(hwnd); // before hiding the overlays, as Commit does
         End();
     }
 

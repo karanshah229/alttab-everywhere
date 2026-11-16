@@ -413,6 +413,54 @@ internal sealed partial class SwitcherController
             }
             End();
 
+            // Move here: a throwaway window of our own (the user's windows are never touched) moves
+            // between every pair of monitors, normal, maximized and minimized, landing inside the
+            // target's work area and keeping its state.
+            var monitors = Monitors.GetAll();
+            if (monitors.Count < 2) Log.Info("selftest: move here skipped (one monitor)");
+            else
+            {
+                var probe = new Window
+                {
+                    Title = "AltTab Everywhere move test", Width = 420, Height = 280, ShowActivated = false,
+                    ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual,
+                };
+                try
+                {
+                    probe.Show();
+                    IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(probe).Handle;
+                    foreach (var from in monitors)
+                    foreach (var to in monitors.Where(m => m != from))
+                    foreach (string state in new[] { "normal", "maximized", "minimized" })
+                    {
+                        string tag = $"move here ({state}, {from.DeviceName} -> {to.DeviceName})";
+                        Native.ShowWindow(hwnd, 9 /* SW_RESTORE */);
+                        var start = from.WorkArea;
+                        Native.SetWindowPos(hwnd, IntPtr.Zero, start.Left + 40, start.Top + 40, 600, 400, Native.SWP_NOACTIVATE);
+                        if (state == "maximized") Native.ShowWindow(hwnd, 3 /* SW_MAXIMIZE */);
+                        if (state == "minimized") Native.ShowWindow(hwnd, 7 /* SW_SHOWMINNOACTIVE */);
+                        await Settle();
+                        bool moved = WindowMover.MoveTo(hwnd, to);
+                        if (state == "minimized") Native.ShowWindow(hwnd, 4 /* SW_SHOWNOACTIVATE: restore without focus */);
+                        await Settle();
+                        Native.GetWindowRect(hwnd, out var rect);
+                        IntPtr landed = Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST);
+                        checks += 3;
+                        if (!moved || landed != to.Handle) Fail($"{tag}: ended on another monitor (moved={moved})");
+                        if (state == "maximized" != probe.WindowState.Equals(WindowState.Maximized)) Fail($"{tag}: state is {probe.WindowState}");
+                        // Maximized windows hang a few invisible pixels outside the work area; allow for it.
+                        var area = to.WorkArea;
+                        int slack = state == "maximized" ? 16 : 0;
+                        if (rect.Left < area.Left - slack || rect.Top < area.Top - slack || rect.Right > area.Right + slack || rect.Bottom > area.Bottom + slack)
+                            Fail($"{tag}: {rect} is outside the work area {area}");
+                    }
+                }
+                finally
+                {
+                    probe.Close();
+                }
+            }
+
             // Show desktop tile, with every monitor listing all windows and with each listing its own:
             // it comes last on every switcher, has no window, is never where a session starts, can't be
             // closed, gets no peek, and a search keeps it only when it matches. (It's never picked here:

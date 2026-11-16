@@ -40,6 +40,7 @@ Inspiration comes from:
 - [x] Phase 1: start with Windows, hook recovery, close from the switcher, exclusions, desktops scope, per-monitor lists, MIT licence
 - [x] Phase 2: type to search, several shortcuts with their own filters (including a current-app switcher), number keys, Home/End/Page Up/Page Down, hover to select
 - [x] Phase 3: settings window, own icon, light/dark and accent colours, layout styles (previews, large icons, compact list, icons only), Store app icons, state badges (minimized, admin, not responding, other desktop), Peek (outline the selected window), "Show desktop" tile, accessibility (screen-reader names, high contrast, keyboard-only colour picker)
+- [x] Phase 4 (part): move the selected window to this monitor (Shift+Enter or Ctrl+click)
 
 ---
 
@@ -87,7 +88,7 @@ These make it safe to leave running all day, every day. None adds idle work.
 
 | # | Feature | Why | Effort | Idle cost | Seen in |
 |---|---|---|---|---|---|
-| 24 | **Move the selected window to this monitor** (a key in the switcher) | Unique to a switcher on every screen: pull a window to where you're looking | S–M | None | Ours |
+| 24 | ✅ **Move the selected window to this monitor** (a key in the switcher) | Unique to a switcher on every screen: pull a window to where you're looking | S–M | None | Ours |
 | 25 | **Window actions in the switcher**: minimize, maximize, quit app, always-on-top | Saves a trip to the window. macOS lets you quit or hide apps right from Cmd+Tab | S each | None | macOS, Alt-Tab Terminator, AltTab (macOS) |
 | 26 | **Sort and group**: recently used (today), stacking order, by app, alphabetical; optional per-monitor sections | KDE offers stacking order as well as recently used | M | None | KDE, AltTab (macOS) |
 | 27 | **Previews for minimized windows** (snapshot taken at minimize) | Removes a known gap. Holds a bitmap per minimized window; measure and cap | M–L | **Some memory**, to measure | Alt-Tab Terminator |

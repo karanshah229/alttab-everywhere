@@ -135,8 +135,10 @@ internal sealed class SwitcherWindow : Window
     public event Action<int>? TileHovered;
     /// <summary>A stack's "×3" badge was clicked: open the stack.</summary>
     public event Action<int>? TileBadgeClicked;
+    public event Action<int>? TileMoveHereClicked;
 
     private bool _middleClickCloses = true;
+    private bool _ctrlClickMovesHere = true;
     private bool _showCloseButton = true;
     private bool _hoverSelects;
     private bool _announce; // screenReaderAnnouncements: keyboard focus follows the selection, so screen readers read it
@@ -259,6 +261,7 @@ internal sealed class SwitcherWindow : Window
         // Only the thumbnails layout has room for live previews; the others never register any.
         _showThumbnails = settings.ShowThumbnails && settings.Layout == SwitcherLayout.Thumbnails;
         _middleClickCloses = settings.MiddleClickCloses;
+        _ctrlClickMovesHere = settings.CtrlClickMovesHere;
         _showCloseButton = settings.ShowCloseButton;
         _hoverSelects = settings.HoverSelects;
         _announce = settings.ScreenReaderAnnouncements;
@@ -580,7 +583,11 @@ internal sealed class SwitcherWindow : Window
         root.MouseLeftButtonUp += (_, e) =>
         {
             e.Handled = true;
-            TileClicked?.Invoke(index);
+            // Ctrl from the real keyboard state: this overlay's thread may not have keyboard focus.
+            if (_ctrlClickMovesHere && (Native.GetAsyncKeyState(0x11 /* VK_CONTROL */) & 0x8000) != 0)
+                TileMoveHereClicked?.Invoke(index);
+            else
+                TileClicked?.Invoke(index);
         };
         root.MouseUp += (_, e) =>
         {
