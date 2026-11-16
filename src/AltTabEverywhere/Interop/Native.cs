@@ -166,6 +166,14 @@ internal static class Native
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool IsHungAppWindow(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetTopWindow(IntPtr hWnd);
+
+    public const uint GW_HWNDNEXT = 2;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetWindow(IntPtr hWnd, uint cmd);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int GetWindowTextLength(IntPtr hWnd);
 

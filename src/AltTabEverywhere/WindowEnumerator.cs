@@ -14,8 +14,9 @@ namespace AltTabEverywhere;
 /// <param name="OnOtherDesktop">On another virtual desktop (only listed with virtualDesktops = all).</param>
 /// <param name="IsElevated">Runs as administrator (only checked when the admin badge is on).</param>
 /// <param name="IsHung">Not responding (only checked when that badge is on).</param>
+/// <param name="IsTopmost">Kept above other windows (always on top).</param>
 internal sealed record WindowInfo(IntPtr Handle, string Title, ImageSource? Icon, IntPtr Monitor, bool IsMinimized,
-    string? AppUserModelId, bool OnOtherDesktop = false, bool IsElevated = false, bool IsHung = false);
+    string? AppUserModelId, bool OnOtherDesktop = false, bool IsElevated = false, bool IsHung = false, bool IsTopmost = false);
 
 /// <summary>What <see cref="WindowEnumerator.GetSwitchableWindows"/> lists and finds out about each window.</summary>
 /// <param name="IncludeOtherDesktops">Also list windows on other virtual desktops.</param>
@@ -193,7 +194,8 @@ internal static class WindowEnumerator
             appUserModelId,
             otherDesktop,
             _query.Elevation && IsElevated(hwnd),
-            _query.Hung && Native.IsHungAppWindow(hwnd));
+            _query.Hung && Native.IsHungAppWindow(hwnd),
+            WindowActions.IsTopmost(hwnd));
     }
 
     private static bool IsElevated(IntPtr hwnd)

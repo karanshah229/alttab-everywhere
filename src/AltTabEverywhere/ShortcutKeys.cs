@@ -119,7 +119,7 @@ internal readonly record struct ShortcutKeys(KeyModifiers Modifiers, int Virtual
 /// </summary>
 internal readonly record struct SwitcherKey(int VirtualKey, bool Shift, bool Ctrl)
 {
-    public const int VK_RETURN = 0x0D, VK_INSERT = 0x2D;
+    public const int VK_RETURN = 0x0D, VK_INSERT = 0x2D, VK_DELETE = 0x2E, VK_LEFT = 0x25, VK_UP = 0x26, VK_RIGHT = 0x27, VK_DOWN = 0x28;
 
     /// <summary>Parses the setting; empty or "off" means no key (returns false).</summary>
     public static bool TryParse(string? text, out SwitcherKey key)
@@ -141,6 +141,11 @@ internal readonly record struct SwitcherKey(int VirtualKey, bool Shift, bool Ctr
             {
                 "enter" or "return" => VK_RETURN,
                 "insert" or "ins" => VK_INSERT,
+                "delete" or "del" => VK_DELETE,
+                "left" => VK_LEFT,
+                "up" => VK_UP,
+                "right" => VK_RIGHT,
+                "down" => VK_DOWN,
                 "space" => ShortcutKeys.VK_SPACE,
                 _ when token.Length == 1 && token[0] is >= 'a' and <= 'z' => char.ToUpperInvariant(token[0]),
                 _ when token.Length is 2 or 3 && token[0] == 'f' && int.TryParse(token.AsSpan(1), out int f) && f is >= 1 and <= 24 => 0x70 + f - 1,
@@ -149,8 +154,8 @@ internal readonly record struct SwitcherKey(int VirtualKey, bool Shift, bool Ctr
             if (vk == 0) return false;
         }
         if (vk == 0) return false;
-        // Plain Enter already switches; moving needs something on top of it.
-        if (vk == VK_RETURN && !shift && !ctrl) return false;
+        // Enter, the arrows and Delete already do something in the switcher: they need Shift or Ctrl.
+        if (vk is VK_RETURN or VK_DELETE or VK_LEFT or VK_UP or VK_RIGHT or VK_DOWN && !shift && !ctrl) return false;
         key = new SwitcherKey(vk, shift, ctrl);
         return true;
     }

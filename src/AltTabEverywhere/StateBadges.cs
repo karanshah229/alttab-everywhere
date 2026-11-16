@@ -14,6 +14,7 @@ internal static class StateBadges
     public static readonly StateBadge NotResponding = new("", "Not responding");
     public static readonly StateBadge Admin = new("", "Running as administrator");
     public static readonly StateBadge OtherDesktop = new("", "On another desktop");
+    public static readonly StateBadge AlwaysOnTop = new("", "Always on top");
     public static readonly StateBadge Minimized = new("", "Minimized");
 
     /// <summary>The badges that are on in <paramref name="settings"/> and apply to the window, most important first.</summary>
@@ -22,6 +23,7 @@ internal static class StateBadges
         var badges = new List<StateBadge>(0);
         if (settings.NotRespondingBadge && window.IsHung) badges.Add(NotResponding);
         if (settings.AdminBadge && window.IsElevated) badges.Add(Admin);
+        if (settings.AlwaysOnTopBadge && window.IsTopmost) badges.Add(AlwaysOnTop);
         if (settings.OtherDesktopBadge && window.OnOtherDesktop) badges.Add(OtherDesktop);
         if (settings.MinimizedBadge && window.IsMinimized) badges.Add(Minimized);
         return badges;

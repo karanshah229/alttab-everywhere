@@ -81,7 +81,7 @@ internal sealed partial class SwitcherController : IDisposable
         _hook.Jump += Jump;
         _hook.StackKey += OnStackKey;
         _hook.StackBack += CloseStack;
-        _hook.MoveHere += MoveSelectedHere;
+        _hook.KeyAction += OnKeyAction;
         _hook.CloseSelected += CloseSelected;
         _hook.ModifiersReleased += OnModifiersReleased;
         _hook.Commit += Commit;
@@ -127,7 +127,7 @@ internal sealed partial class SwitcherController : IDisposable
         _hook.DeleteCloses = settings.DeleteKeyCloses;
         _hook.TypeToSearch = settings.TypeToSearch;
         _hook.NumberKeys = settings.NumberKeys != NumberKeys.Off;
-        _hook.MoveHereKey = SwitcherKey.TryParse(settings.MoveHereKey, out var moveKey) ? moveKey : null;
+        _hook.ActionKeys = ActionKeysFrom(settings);
         _showTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, settings.ShowDelayMs));
         _stackDelayMs = settings.StackOpenDelayMs;
         Theme.Rebuild(settings);
@@ -382,7 +382,11 @@ internal sealed partial class SwitcherController : IDisposable
     private List<SwitcherItem>? OpenStackView()
     {
         if (_openStack is null) return null;
-        var windows = WindowGrouping.StackView(_openStack, w => _windows.Any(x => x.Handle == w.Handle)).Skip(1).ToList();
+        // Current copies of its windows (a minimize or always-on-top from the switcher updates them).
+        var current = new Dictionary<IntPtr, WindowInfo>();
+        foreach (var w in _windows) current.TryAdd(w.Handle, w);
+        var windows = WindowGrouping.StackView(_openStack, w => current.ContainsKey(w.Handle)).Skip(1)
+            .Select(i => new SwitcherItem(new[] { current[i.Shown.Handle] })).ToList();
         windows = Search(windows);
         if (windows.Count == 0)
         {
@@ -553,6 +557,7 @@ internal sealed partial class SwitcherController : IDisposable
             overlay.TileHovered += index => OnTileHovered(overlay, index);
             overlay.TileBadgeClicked += index => OnTileBadgeClicked(overlay, index);
             overlay.TileMoveHereClicked += index => OnTileMoveHereClicked(overlay, index);
+            overlay.TileMenuChosen += (index, command) => OnTileMenu(overlay, index, command);
             overlay.Deactivated += OnOverlayDeactivated;
             _overlays.Add(overlay);
         }
@@ -640,13 +645,17 @@ internal sealed partial class SwitcherController : IDisposable
     /// Asks the window to close (WM_CLOSE, like clicking its ×, so apps can still ask to save) and
     /// takes it out of the switcher. The switcher stays open on the same monitor.
     /// </summary>
-    private void CloseWindow(IntPtr hwnd)
-    {
-        if (!_uiPrepared) return; // too early: tiles aren't built yet
-        Native.PostMessage(hwnd, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-        Log.Info("closed a window from the switcher");
+    private void CloseWindow(IntPtr hwnd) => CloseWindows(new[] { hwnd });
 
-        _windows.RemoveAll(w => w.Handle == hwnd);
+    /// <summary>Like <see cref="CloseWindow"/> for several windows at once (Quit app).</summary>
+    private void CloseWindows(IReadOnlyCollection<IntPtr> handles)
+    {
+        if (!_uiPrepared || handles.Count == 0) return; // too early: tiles aren't built yet
+        foreach (var hwnd in handles) Native.PostMessage(hwnd, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+        Log.Info(handles.Count == 1 ? "closed a window from the switcher" : $"closed {handles.Count} windows of an app from the switcher");
+
+        var closing = new HashSet<IntPtr>(handles);
+        _windows.RemoveAll(w => closing.Contains(w.Handle));
         if (_windows.Count == 0)
         {
             End();
@@ -876,21 +885,101 @@ internal sealed partial class SwitcherController : IDisposable
         End();
     }
 
-    /// <summary>
-    /// moveHereKey: switch to the selected window and bring it to the monitor whose switcher the
-    /// keyboard drives. On Back or Show desktop it does what Enter does.
-    /// </summary>
-    private void MoveSelectedHere()
+    // ---- Window actions (keys and the tile menu) ----
+
+    /// <summary>The window-action keys from the settings; each "off" or unreadable one is left out.</summary>
+    private static (SwitcherKey, WindowAction)[] ActionKeysFrom(Settings settings)
+    {
+        var keys = new List<(SwitcherKey, WindowAction)>();
+        void Add(string text, WindowAction action)
+        {
+            if (SwitcherKey.TryParse(text, out var key)) keys.Add((key, action));
+        }
+        Add(settings.MoveHereKey, WindowAction.MoveHere);
+        Add(settings.MinimizeKey, WindowAction.Minimize);
+        Add(settings.MaximizeKey, WindowAction.Maximize);
+        Add(settings.AlwaysOnTopKey, WindowAction.AlwaysOnTop);
+        Add(settings.QuitAppKey, WindowAction.QuitApp);
+        return keys.ToArray();
+    }
+
+    /// <summary>A window-action key, applied to the selection. On Back or Show desktop, keys that switch do what Enter does.</summary>
+    private void OnKeyAction(WindowAction action)
     {
         if (!_active) return;
         if (_selected < 0 || _selected >= _items.Count || !_items[_selected].HasWindow)
         {
-            Commit();
+            if (WindowActions.EndsSession(action)) Commit();
             return;
         }
         var monitor = _focusOverlay?.Monitor
                       ?? Monitors.GetAll().FirstOrDefault(m => m.Handle == Monitors.UnderCursor());
-        MoveHereAndSwitch(_items[_selected].Shown.Handle, monitor);
+        Perform(action, _items[_selected], monitor);
+    }
+
+    /// <param name="monitor">"Here", for Move here: the keyboard's switcher, or the one clicked.</param>
+    private void Perform(WindowAction action, SwitcherItem item, MonitorInfo? monitor)
+    {
+        var window = item.Shown;
+        IntPtr hwnd = window.Handle;
+        switch (action)
+        {
+            case WindowAction.MoveHere:
+                MoveHereAndSwitch(hwnd, monitor);
+                break;
+            case WindowAction.Maximize:
+                bool maximize = WindowActions.ShouldMaximize(hwnd); // decided before switching restores it
+                WindowActivator.Activate(hwnd);
+                WindowActions.SetMaximized(hwnd, maximize);
+                End();
+                break;
+            case WindowAction.Minimize:
+                if (Native.IsHungAppWindow(hwnd)) break;
+                bool minimized = WindowActions.ToggleMinimized(hwnd);
+                UpdateWindow(hwnd, w => w with { IsMinimized = minimized });
+                break;
+            case WindowAction.AlwaysOnTop:
+                if (Native.IsHungAppWindow(hwnd)) break; // the change waits on the app
+                bool onTop = WindowActions.ToggleTopmost(hwnd);
+                // The window went to the top of the always-on-top windows: put the switcher back over it.
+                foreach (var entry in _plan)
+                    Native.SetWindowPos(entry.Host.Handle, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOSIZE | 0x0002 /* NOMOVE */ | Native.SWP_NOACTIVATE);
+                UpdateWindow(hwnd, w => w with { IsTopmost = onTop });
+                break;
+            case WindowAction.QuitApp:
+                string app = WindowEnumerator.AppKey(window);
+                CloseWindows(_windows.Where(w => string.Equals(WindowEnumerator.AppKey(w), app, StringComparison.OrdinalIgnoreCase))
+                    .Select(w => w.Handle).Distinct().ToList());
+                break;
+        }
+    }
+
+    /// <summary>A window's state changed from the switcher (minimized, always on top): redraw its tile, keeping the selection.</summary>
+    private void UpdateWindow(IntPtr hwnd, Func<WindowInfo, WindowInfo> change)
+    {
+        for (int i = 0; i < _windows.Count; i++)
+            if (_windows[i].Handle == hwnd) _windows[i] = change(_windows[i]);
+        if (!_uiPrepared) return;
+        int selected = _selected;
+        Replan(items => Math.Clamp(selected, 0, Math.Max(0, items.Count - 1)));
+    }
+
+    /// <summary>A command from a tile's right-click menu.</summary>
+    private void OnTileMenu(OverlayHost host, int index, TileMenuCommand command)
+    {
+        if (!_active || ItemAt(host, index) is not { HasWindow: true } item) return;
+        switch (command)
+        {
+            case TileMenuCommand.Switch:
+                OnTileClicked(host, index);
+                break;
+            case TileMenuCommand.Close:
+                CloseWindow(item.Shown.Handle);
+                break;
+            default:
+                Perform((WindowAction)command, item, host.Monitor);
+                break;
+        }
     }
 
     /// <summary>Ctrl+click: switch to that tile's window and bring it to the monitor of the switcher clicked.</summary>

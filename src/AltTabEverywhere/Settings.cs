@@ -186,6 +186,23 @@ internal sealed class Settings
     /// <summary>Ctrl+click on a tile switches to that window and moves it to the monitor of the switcher you clicked.</summary>
     public bool CtrlClickMovesHere { get; set; } = true;
 
+    // Window actions while the switcher is open (keys like moveHereKey; "off" turns one off).
+
+    /// <summary>Minimize the selected window (or restore it, without switching, if it is minimized). The switcher stays open.</summary>
+    public string MinimizeKey { get; set; } = "Ctrl+Down";
+
+    /// <summary>Switch to the selected window maximized (or restored, if it already was).</summary>
+    public string MaximizeKey { get; set; } = "Ctrl+Up";
+
+    /// <summary>Keep the selected window above other windows, or stop. The switcher stays open.</summary>
+    public string AlwaysOnTopKey { get; set; } = "Ctrl+T";
+
+    /// <summary>Ask every listed window of the selected window's app to close. The switcher stays open.</summary>
+    public string QuitAppKey { get; set; } = "Shift+Delete";
+
+    /// <summary>Right-clicking a tile opens a menu of these actions (and switch, move here, close).</summary>
+    public bool TileMenu { get; set; } = true;
+
     /// <summary>Apps never listed: executable names ("notepad.exe" or "notepad"), full paths, or app IDs.</summary>
     public List<string> ExcludedApps { get; set; } = new();
 
@@ -245,6 +262,9 @@ internal sealed class Settings
     /// <summary>Badge on windows on another virtual desktop (listed with virtualDesktops = all).</summary>
     public bool OtherDesktopBadge { get; set; } = true;
 
+    /// <summary>Badge on windows kept always on top.</summary>
+    public bool AlwaysOnTopBadge { get; set; } = true;
+
     /// <summary>Live DWM thumbnails. When false, tiles show the app icon only.</summary>
     public bool ShowThumbnails { get; set; } = true;
 
@@ -287,6 +307,10 @@ internal sealed class Settings
         if (!Enum.IsDefined(HighContrast)) HighContrast = HighContrastMode.System;
         PeekColor ??= "";
         MoveHereKey ??= "";
+        MinimizeKey ??= "";
+        MaximizeKey ??= "";
+        AlwaysOnTopKey ??= "";
+        QuitAppKey ??= "";
         TileWidth = Math.Clamp(TileWidth, 80, 600);
         ThumbnailHeight = Math.Clamp(ThumbnailHeight, 50, 400);
         IconSize = Math.Clamp(IconSize, 16, 128);

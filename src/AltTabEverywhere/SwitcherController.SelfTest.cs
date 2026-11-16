@@ -51,6 +51,12 @@ internal sealed partial class SwitcherController
                 _settingsOverride.Peek = PeekMode.Outline;
                 _settingsOverride.PeekDelayMs = 0;
                 _settingsOverride.ScreenReaderAnnouncements = true;
+                _settingsOverride.TileMenu = true;
+                _settingsOverride.MoveHereKey = "Shift+Enter";
+                _settingsOverride.MinimizeKey = "Ctrl+Down";
+                _settingsOverride.MaximizeKey = "Ctrl+Up";
+                _settingsOverride.AlwaysOnTopKey = "Ctrl+T";
+                _settingsOverride.QuitAppKey = "Shift+Delete";
                 layoutTag = $"[{layout}] ";
                 // Repeat real windows to reach the target count; geometry is all that matters here.
                 // Every third tile is a two-window stack so badges and stack cycling are covered too.
@@ -93,6 +99,16 @@ internal sealed partial class SwitcherController
                         if (caption != _items[count - 1].Shown.Title) Fail($"{count} tiles, {overlay.Monitor.DeviceName}: caption \"{caption}\"");
                         Select(0);
                     }
+                }
+
+                // Right-click menu: every switcher offers the seven entries, each with its key.
+                foreach (var overlay in shown)
+                {
+                    var entries = overlay.Query(w => w.TileMenuEntries(0));
+                    checks += 2;
+                    if (entries.Count != 7) Fail($"{count} tiles, {overlay.Monitor.DeviceName}: tile menu has {entries.Count} entries");
+                    if (!entries.Contains("Always on top|Ctrl+T") || !entries.Contains("Move to this monitor|Shift+Enter"))
+                        Fail($"{count} tiles, {overlay.Monitor.DeviceName}: tile menu entries {string.Join("; ", entries)}");
                 }
 
                 // Screen readers: every tile is a list item named after its window, with its place in
@@ -268,8 +284,8 @@ internal sealed partial class SwitcherController
                     _settingsOverride.Layout = layout;
                     _settingsOverride.MinimizedBadge = minimizedOn;
                     _settingsOverride.AdminBadge = _settingsOverride.NotRespondingBadge = _settingsOverride.OtherDesktopBadge = true;
-                    var troubled = real[0] with { IsMinimized = true, IsElevated = true, IsHung = true, OnOtherDesktop = true };
-                    var plain = real[0] with { IsMinimized = false, IsElevated = false, IsHung = false, OnOtherDesktop = false };
+                    var troubled = real[0] with { IsMinimized = true, IsElevated = true, IsHung = true, OnOtherDesktop = true, IsTopmost = false };
+                    var plain = real[0] with { IsMinimized = false, IsElevated = false, IsHung = false, OnOtherDesktop = false, IsTopmost = false };
                     _items = new List<SwitcherItem> { new(new[] { troubled }), new(new[] { plain }) };
                     _active = true;
                     _sessionId++;
@@ -412,6 +428,86 @@ internal sealed partial class SwitcherController
                 if (_plan.Any(p => p.Host.Query(w => w.IsSearchBarShown))) Fail($"search ({label}): search bar still shown after clearing");
             }
             End();
+
+            // Window actions, on a throwaway window of our own shown as the first tile of a live session:
+            // always on top keeps the switcher above it, minimize toggles without switching, and
+            // the maximize decision and change work.
+            {
+                var target = new Window
+                {
+                    Title = "AltTab Everywhere actions test", Width = 420, Height = 280, ShowActivated = false,
+                    ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = 60, Top = 60,
+                };
+                try
+                {
+                    target.Show();
+                    IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(target).Handle;
+                    var info = new WindowInfo(hwnd, "actions test", null, Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST), false, null);
+                    _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+                    _settingsOverride.ShowDesktopTile = false;
+                    _items = new List<SwitcherItem> { new(new[] { info }), new(new[] { real[0] }) };
+                    _testItems = _items; // re-plans after an action keep these tiles
+                    _windows = _items.SelectMany(i => i.Windows).ToList();
+                    var probeItem = _items[0];
+                    _active = true;
+                    _sessionId++;
+                    _selected = 0;
+                    PlanForTest(_items);
+                    await ShowUiAsync();
+                    await Settle();
+                    var hosts = _plan.Select(p => p.Host.Handle).ToList();
+                    bool SwitcherAbove()
+                    {
+                        var remaining = new HashSet<IntPtr>(hosts);
+                        for (IntPtr w = Native.GetTopWindow(IntPtr.Zero); w != IntPtr.Zero; w = Native.GetWindow(w, Native.GW_HWNDNEXT))
+                        {
+                            if (w == hwnd) return remaining.Count == 0;
+                            remaining.Remove(w);
+                        }
+                        return false;
+                    }
+
+                    Perform(WindowAction.AlwaysOnTop, probeItem, null);
+                    await Settle();
+                    checks += 2;
+                    if (!WindowActions.IsTopmost(hwnd)) Fail("always on top: not on top");
+                    if (!SwitcherAbove()) Fail("always on top: the window covers the switcher");
+                    Perform(WindowAction.AlwaysOnTop, probeItem, null);
+                    await Settle();
+                    checks++;
+                    if (WindowActions.IsTopmost(hwnd)) Fail("always on top: still on top after turning it off");
+
+                    IntPtr foreground = Native.GetForegroundWindow();
+                    Perform(WindowAction.Minimize, probeItem, null);
+                    await Settle();
+                    checks++;
+                    if (!Native.IsIconic(hwnd)) Fail("minimize: not minimized");
+                    Perform(WindowAction.Minimize, probeItem, null);
+                    await Settle();
+                    checks += 2;
+                    if (Native.IsIconic(hwnd)) Fail("minimize again: still minimized");
+                    if (Native.GetForegroundWindow() == hwnd && foreground != hwnd) Fail("minimize again: restoring it switched to it");
+                    checks++;
+                    if (!_active) Fail("minimize / always on top ended the session");
+                    End();
+
+                    checks += 3;
+                    if (!WindowActions.ShouldMaximize(hwnd)) Fail("maximize: a normal window should be maximized");
+                    WindowActions.SetMaximized(hwnd, true);
+                    await Settle();
+                    if (target.WindowState != WindowState.Maximized) Fail("maximize: not maximized");
+                    if (WindowActions.ShouldMaximize(hwnd)) Fail("maximize: a maximized window should be restored next");
+                    WindowActions.SetMaximized(hwnd, false);
+                    await Settle();
+                    checks++;
+                    if (target.WindowState != WindowState.Normal) Fail("maximize: not restored");
+                }
+                finally
+                {
+                    if (_active) End();
+                    target.Close();
+                }
+            }
 
             // Move here: a throwaway window of our own (the user's windows are never touched) moves
             // between every pair of monitors, normal, maximized and minimized, landing inside the

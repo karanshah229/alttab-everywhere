@@ -80,11 +80,11 @@ internal sealed class KeyboardHook : IDisposable
 
     public bool NumberKeys { get; set; } = true;
 
-    /// <summary>moveHereKey: switch to the selection and bring it to this monitor. Null: none.</summary>
-    public SwitcherKey? MoveHereKey { get; set; }
+    /// <summary>Window-action keys (moveHereKey, minimizeKey...), checked before the switcher's own keys.</summary>
+    public (SwitcherKey Key, WindowAction Action)[] ActionKeys { get; set; } = Array.Empty<(SwitcherKey, WindowAction)>();
 
-    /// <summary>The move-here key was pressed (the session has ended, as for Enter).</summary>
-    public event Action? MoveHere;
+    /// <summary>A window-action key was pressed. For actions that switch windows the session has already ended, as for Enter.</summary>
+    public event Action<WindowAction>? KeyAction;
 
     public KeyboardHook()
     {
@@ -202,19 +202,24 @@ internal sealed class KeyboardHook : IDisposable
             return SwallowDown(vk);
         }
 
-        // moveHereKey (Shift+Enter by default): like Enter, plus bringing the window to this monitor.
-        // Shift or Ctrl count only when the session's own shortcut doesn't already hold them.
-        if (MoveHereKey is { } move && vk == move.VirtualKey &&
-            ((session.Modifiers & KeyModifiers.Shift) != 0 || IsDown(VK_SHIFT) == move.Shift) &&
-            ((session.Modifiers & KeyModifiers.Ctrl) != 0 || IsDown(VK_CONTROL) == move.Ctrl))
+        // Window-action keys (Shift+Enter moves here, Ctrl+Down minimizes...). Shift or Ctrl count
+        // only when the session's own shortcut doesn't already hold them.
+        foreach (var (actionKey, action) in ActionKeys)
         {
-            if (BackSelected)
+            if (vk != actionKey.VirtualKey ||
+                ((session.Modifiers & KeyModifiers.Shift) == 0 && IsDown(VK_SHIFT) != actionKey.Shift) ||
+                ((session.Modifiers & KeyModifiers.Ctrl) == 0 && IsDown(VK_CONTROL) != actionKey.Ctrl))
+                continue;
+            if (WindowActions.EndsSession(action))
             {
-                Post(() => StackBack?.Invoke()); // on Back it just goes back, like Enter
-                return SwallowDown(vk);
+                if (BackSelected)
+                {
+                    Post(() => StackBack?.Invoke()); // on Back it just goes back, like Enter
+                    return SwallowDown(vk);
+                }
+                EndSession();
             }
-            EndSession();
-            Post(() => MoveHere?.Invoke());
+            Post(() => KeyAction?.Invoke(action));
             return SwallowDown(vk);
         }
 

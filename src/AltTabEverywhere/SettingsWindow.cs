@@ -229,8 +229,6 @@ internal sealed class SettingsWindow : Window
         Number("Peek outline width", "1–20.", "peekBorderWidth", _s.PeekBorderWidth, 1, 20);
         Colour("Peek colour", "Empty: accent colour.", "peekColor", _s.PeekColor, "", t => t.AccentColor);
         Toggle("Show desktop tile", "A last tile that clears the screen, like Win+D.", "showDesktopTile", _s.ShowDesktopTile);
-        SwitcherKeyRow("Move here key", "Switch and bring the window to this monitor.", "moveHereKey", _s.MoveHereKey);
-        Toggle("Ctrl+click moves here", "Ctrl+click a tile to bring its window to that monitor.", "ctrlClickMovesHere", _s.CtrlClickMovesHere);
 
         Section("Filters");
         Lines("Excluded apps", "One per line: name, path or app ID.", "excludedApps", _s.ExcludedApps);
@@ -250,10 +248,17 @@ internal sealed class SettingsWindow : Window
         Toggle("Screen reader announcements", "Narrator and others read each tile as it's selected.",
             "screenReaderAnnouncements", _s.ScreenReaderAnnouncements);
 
-        Section("Closing");
+        Section("Actions");
         Toggle("Delete key closes the selected window", "", "deleteKeyCloses", _s.DeleteKeyCloses);
         Toggle("Middle-click closes a window", "", "middleClickCloses", _s.MiddleClickCloses);
         Toggle("Close button on hover", "", "showCloseButton", _s.ShowCloseButton);
+        SwitcherKeyRow("Move here key", "Switch and bring the window to this monitor.", "moveHereKey", _s.MoveHereKey, "Shift+Enter", "Ctrl+Enter", "Insert", "F2");
+        Toggle("Ctrl+click moves here", "Ctrl+click a tile to bring its window to that monitor.", "ctrlClickMovesHere", _s.CtrlClickMovesHere);
+        SwitcherKeyRow("Minimize key", "Minimize (or restore) the selected window. Stays open.", "minimizeKey", _s.MinimizeKey, "Ctrl+Down", "F3");
+        SwitcherKeyRow("Maximize key", "Switch to the window maximized (or restored).", "maximizeKey", _s.MaximizeKey, "Ctrl+Up", "F5");
+        SwitcherKeyRow("Always on top key", "Keep the window above others, or stop.", "alwaysOnTopKey", _s.AlwaysOnTopKey, "Ctrl+T", "F6");
+        SwitcherKeyRow("Quit app key", "Close every window of the selected app.", "quitAppKey", _s.QuitAppKey, "Shift+Delete", "Ctrl+Q");
+        Toggle("Right-click menu on tiles", "All of these actions, with their keys.", "tileMenu", _s.TileMenu);
 
         Section("Appearance");
         Choice("Layout", "Only live previews show window contents; the others use less memory.", "layout", _s.Layout, LayoutOptions);
@@ -277,6 +282,7 @@ internal sealed class SettingsWindow : Window
         Toggle("Minimized badge", "A dash on minimized windows.", "minimizedBadge", _s.MinimizedBadge);
         Toggle("Admin badge", "A shield on windows running as administrator.", "adminBadge", _s.AdminBadge);
         Toggle("Not responding badge", "A warning sign on frozen windows.", "notRespondingBadge", _s.NotRespondingBadge);
+        Toggle("Always on top badge", "A pin on windows kept above others.", "alwaysOnTopBadge", _s.AlwaysOnTopBadge);
         Toggle("Other desktop badge", "On windows from another virtual desktop.", "otherDesktopBadge", _s.OtherDesktopBadge);
 
         Section("System");
@@ -403,12 +409,12 @@ internal sealed class SettingsWindow : Window
     }
 
     /// <summary>A key pressed inside the switcher (moveHereKey): pick a suggestion or type one; "Off" turns it off.</summary>
-    private void SwitcherKeyRow(string label, string description, string key, string value)
+    private void SwitcherKeyRow(string label, string description, string key, string value, params string[] suggestions)
     {
         Track(key);
         var combo = new ComboBox { IsEditable = true, MinWidth = 240, Text = string.IsNullOrWhiteSpace(value) ? "Off" : value };
-        foreach (var suggestion in new[] { "Shift+Enter", "Ctrl+Enter", "Insert", "F2", "Off" }) combo.Items.Add(suggestion);
-        var error = new TextBlock { Text = "Try Shift+Enter, Insert, F2 or Off", Foreground = Brushes.IndianRed, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 2, 0, 0) };
+        foreach (var suggestion in suggestions.Append("Off").Distinct()) combo.Items.Add(suggestion);
+        var error = new TextBlock { Text = "Use Shift or Ctrl with Enter, arrows or Delete; or Insert, F1–F24, a letter, Off", Foreground = Brushes.IndianRed, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 2, 0, 0) };
         string last = combo.Text;
         void Commit()
         {

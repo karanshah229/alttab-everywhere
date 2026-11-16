@@ -136,9 +136,12 @@ internal sealed class SwitcherWindow : Window
     /// <summary>A stack's "×3" badge was clicked: open the stack.</summary>
     public event Action<int>? TileBadgeClicked;
     public event Action<int>? TileMoveHereClicked;
+    public event Action<int, TileMenuCommand>? TileMenuChosen;
 
     private bool _middleClickCloses = true;
     private bool _ctrlClickMovesHere = true;
+    private Settings? _menuSettings;   // tileMenu on: the session's settings, for the menu's key hints; null: no menu
+    private ContextMenu? _openMenu;
     private bool _showCloseButton = true;
     private bool _hoverSelects;
     private bool _announce; // screenReaderAnnouncements: keyboard focus follows the selection, so screen readers read it
@@ -262,6 +265,7 @@ internal sealed class SwitcherWindow : Window
         _showThumbnails = settings.ShowThumbnails && settings.Layout == SwitcherLayout.Thumbnails;
         _middleClickCloses = settings.MiddleClickCloses;
         _ctrlClickMovesHere = settings.CtrlClickMovesHere;
+        _menuSettings = settings.TileMenu ? settings : null;
         _showCloseButton = settings.ShowCloseButton;
         _hoverSelects = settings.HoverSelects;
         _announce = settings.ScreenReaderAnnouncements;
@@ -351,6 +355,8 @@ internal sealed class SwitcherWindow : Window
 
     public void EndSession()
     {
+        if (_openMenu is { IsOpen: true }) _openMenu.IsOpen = false;
+        _openMenu = null;
         ClearThumbnails();
         Hide();
         // Drop the tiles so their visuals, titles and icon references can be collected while idle.
@@ -589,6 +595,12 @@ internal sealed class SwitcherWindow : Window
             else
                 TileClicked?.Invoke(index);
         };
+        root.MouseRightButtonUp += (_, e) =>
+        {
+            if (_menuSettings is null || glyph is not null) return;
+            e.Handled = true;
+            ShowTileMenu(root, index);
+        };
         root.MouseUp += (_, e) =>
         {
             if (e.ChangedButton != MouseButton.Middle || !_middleClickCloses) return;
@@ -610,6 +622,61 @@ internal sealed class SwitcherWindow : Window
 
         return new Tile(root, thumbHost, icon, title, placeholder, badge, badgeText, states);
     }
+
+    /// <summary>
+    /// tileMenu: the window actions for a tile, built when it's right-clicked (nothing is kept per
+    /// tile). Each item shows its key, from the settings. The choice goes to the controller.
+    /// </summary>
+    private void ShowTileMenu(FrameworkElement anchor, int index)
+    {
+        if (BuildTileMenu(anchor, index) is not { } menu) return;
+        menu.Closed += (_, _) => { if (ReferenceEquals(_openMenu, menu)) _openMenu = null; };
+        _openMenu = menu;
+        menu.IsOpen = true;
+    }
+
+    /// <summary>For the self-test: tile <paramref name="index"/>'s menu entries ("text|key"), built but not shown.</summary>
+    public IReadOnlyList<string> TileMenuEntries(int index) =>
+        BuildTileMenu(this, index)?.Items.OfType<MenuItem>().Select(i => $"{i.Header}|{i.InputGestureText}").ToList()
+        ?? (IReadOnlyList<string>)Array.Empty<string>();
+
+    private ContextMenu? BuildTileMenu(FrameworkElement anchor, int index)
+    {
+        if (_menuSettings is not { } s || index < 0 || index >= _tiles.Count || _tiles[index].Window is not { } window) return null;
+        IntPtr hwnd = window.Handle;
+        bool minimized = Native.IsIconic(hwnd);
+        var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.MousePoint };
+        if (!_theme.IsHighContrast)
+        {
+            // WPF's default menu draws a light icon column; a plain border keeps it in the theme.
+            menu.Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(MenuTemplateXaml);
+            menu.Background = _theme.Background;
+            menu.BorderBrush = _theme.BadgeBackground;
+            menu.Foreground = _theme.Text;
+        }
+        string Hint(string key) => SwitcherKey.TryParse(key, out _) ? key : "";
+        void Add(string text, TileMenuCommand command, string gesture = "", bool isChecked = false)
+        {
+            var item = new MenuItem { Header = text, InputGestureText = gesture, IsCheckable = isChecked, IsChecked = isChecked };
+            if (!_theme.IsHighContrast) item.Foreground = _theme.Text;
+            item.Click += (_, _) => TileMenuChosen?.Invoke(index, command);
+            menu.Items.Add(item);
+        }
+        Add("Switch to", TileMenuCommand.Switch, "Enter");
+        Add("Move to this monitor", TileMenuCommand.MoveHere, Hint(s.MoveHereKey));
+        Add(minimized ? "Restore" : "Minimize", TileMenuCommand.Minimize, Hint(s.MinimizeKey));
+        Add(!minimized && WindowActions.ShouldMaximize(hwnd) ? "Maximize" : "Restore and switch", TileMenuCommand.Maximize, Hint(s.MaximizeKey));
+        Add("Always on top", TileMenuCommand.AlwaysOnTop, Hint(s.AlwaysOnTopKey), WindowActions.IsTopmost(hwnd));
+        menu.Items.Add(new Separator());
+        Add("Close window", TileMenuCommand.Close, s.DeleteKeyCloses ? "Delete" : "");
+        Add("Quit app (close all its windows)", TileMenuCommand.QuitApp, Hint(s.QuitAppKey));
+        return menu;
+    }
+
+    private const string MenuTemplateXaml =
+        "<ControlTemplate TargetType=\"ContextMenu\" xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">" +
+        "<Border Background=\"{TemplateBinding Background}\" BorderBrush=\"{TemplateBinding BorderBrush}\" BorderThickness=\"1\" CornerRadius=\"6\" Padding=\"4\">" +
+        "<ItemsPresenter KeyboardNavigation.DirectionalNavigation=\"Cycle\"/></Border></ControlTemplate>";
 
     private static readonly FontFamily IconFont = new("Segoe Fluent Icons, Segoe MDL2 Assets");
     private const string BackGlyph = "";    // back arrow

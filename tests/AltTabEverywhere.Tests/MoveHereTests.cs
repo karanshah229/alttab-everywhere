@@ -77,3 +77,61 @@ public class MoveHereTests
         Assert.False(loaded.CtrlClickMovesHere);
     }
 }
+
+public class WindowActionTests
+{
+    [Theory]
+    [InlineData("Ctrl+Down", 0x28, false, true)]
+    [InlineData("Ctrl+Up", 0x26, false, true)]
+    [InlineData("Ctrl+T", 0x54, false, true)]
+    [InlineData("Shift+Delete", 0x2E, true, false)]
+    [InlineData("Shift+Left", 0x25, true, false)]
+    public void Action_keys_parse(string text, int vk, bool shift, bool ctrl)
+    {
+        Assert.True(SwitcherKey.TryParse(text, out var key));
+        Assert.Equal((vk, shift, ctrl), (key.VirtualKey, key.Shift, key.Ctrl));
+    }
+
+    [Theory]
+    [InlineData("Down")]    // moves the selection
+    [InlineData("Up")]
+    [InlineData("Delete")]  // closes the window
+    public void Keys_the_switcher_already_uses_need_a_modifier(string text) => Assert.False(SwitcherKey.TryParse(text, out _));
+
+    [Fact]
+    public void Defaults()
+    {
+        var s = new Settings();
+        Assert.Equal("Ctrl+Down", s.MinimizeKey);
+        Assert.Equal("Ctrl+Up", s.MaximizeKey);
+        Assert.Equal("Ctrl+T", s.AlwaysOnTopKey);
+        Assert.Equal("Shift+Delete", s.QuitAppKey);
+        Assert.True(s.TileMenu);
+        Assert.True(s.AlwaysOnTopBadge);
+    }
+
+    [Fact]
+    public void Only_move_here_and_maximize_switch_windows()
+    {
+        Assert.True(WindowActions.EndsSession(WindowAction.MoveHere));
+        Assert.True(WindowActions.EndsSession(WindowAction.Maximize));
+        Assert.False(WindowActions.EndsSession(WindowAction.Minimize));
+        Assert.False(WindowActions.EndsSession(WindowAction.AlwaysOnTop));
+        Assert.False(WindowActions.EndsSession(WindowAction.QuitApp));
+    }
+
+    [Fact]
+    public void Menu_commands_share_the_action_values()
+    {
+        foreach (var action in Enum.GetValues<WindowAction>())
+            Assert.Equal(action.ToString(), ((TileMenuCommand)(int)action).ToString());
+    }
+
+    [Fact]
+    public void Always_on_top_windows_get_a_badge()
+    {
+        var w = new WindowInfo(IntPtr.Zero, "t", null, IntPtr.Zero, false, null, IsTopmost: true);
+        Assert.Contains(StateBadges.AlwaysOnTop, StateBadges.For(w, new Settings()));
+        Assert.DoesNotContain(StateBadges.AlwaysOnTop, StateBadges.For(w, new Settings { AlwaysOnTopBadge = false }));
+    }
+}
