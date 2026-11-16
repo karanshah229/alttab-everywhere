@@ -15,8 +15,8 @@ public class AppIconsTests
     public void Only_package_app_ids_count_as_Store_apps(string? id, bool packaged) =>
         Assert.Equal(packaged, AppIcons.IsPackagedAppId(id));
 
-    /// <summary>The Settings app ships with every Windows 10 and 11 install.</summary>
-    [Fact]
+    /// <summary>The Settings app ships with every Windows 10 and 11 desktop (not always with the Server images CI runs on).</summary>
+    [DesktopFact]
     public void A_built_in_Store_app_gets_a_sharp_icon_with_transparency()
     {
         var icon = AppIcons.ForAppId("windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel")

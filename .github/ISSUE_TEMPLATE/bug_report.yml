@@ -1,0 +1,41 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: From the tray icon's tooltip, or the release you downloaded.
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2 (build 26100)
+    validations:
+      required: true
+  - type: textarea
+    id: monitors
+    attributes:
+      label: Monitors
+      description: How many, which one is the main display, and the scaling of each.
+      placeholder: Laptop screen 125% + external 1920x1200 at 100% (main)
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings you changed
+      description: Anything you changed from the defaults (settings.json is in %APPDATA%\AltTabEverywhere).
+      render: json
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The relevant lines of %LOCALAPPDATA%\AltTabEverywhere\log.txt. The log doesn't contain window titles, but check before posting.
+      render: text

@@ -45,7 +45,7 @@ internal sealed class TrayIcon : IDisposable
         _icon = new Forms.NotifyIcon
         {
             Icon = LoadIcon(),
-            Text = "AltTab Everywhere",
+            Text = $"AltTab Everywhere {AppInfo.Version}",
             ContextMenuStrip = menu,
             Visible = true,
         };

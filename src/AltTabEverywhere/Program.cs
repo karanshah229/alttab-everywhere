@@ -92,7 +92,7 @@ internal static class Program
                 systemEvents.ColorsChanged += controller.OnSystemColorsChanged;
                 systemEvents.ExplorerRestarted += () => Log.Info("Explorer restarted");
 
-                Log.Info("started");
+                Log.Info($"started, version {AppInfo.Version}");
                 // Warm up the switcher (invisibly) so the first Alt+Tab is fast, then give back
                 // the memory that startup and warm-up touched.
                 app.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,

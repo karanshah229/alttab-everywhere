@@ -97,8 +97,8 @@ These make it safe to leave running all day, every day. None adds idle work.
 
 | # | Feature | Why | Effort | Idle cost | Seen in |
 |---|---|---|---|---|---|
-| 28 | **Contributing guide and issue templates** | Open source by default | S | — | — |
-| 29 | **CI on GitHub Actions**: build and unit tests on every push | Protects the work as it grows | S | — | — |
+| 28 | ✅ **Contributing guide and issue templates** | Open source by default | S | — | — |
+| 29 | ✅ **CI on GitHub Actions**: build and unit tests on every push | Protects the work as it grows | S | — | — |
 | 30 | **Release packaging**: zip and winget; ReadyToRun build | Easy install; ReadyToRun starts faster and uses less private memory | M | Lower | — |
 | 31 | **Update check**: opt-in, at most once a day, at startup only | Current without polling | S | None | Alt-Tab Terminator |
 | 32 | **Code signing + `uiAccess`** so it works while an admin window has focus | Closes the biggest remaining gap. Needs a certificate and install under Program Files | M + cert | None | — |

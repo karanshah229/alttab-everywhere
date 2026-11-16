@@ -1,0 +1,24 @@
+name: Feature idea
+description: Suggest something new or different
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What should the switcher do, and when would you use it?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What does it fix or make faster? Is it in another switcher (Windows, KDE, macOS, Alt-Tab Terminator...)?
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: The three rules
+      description: See CONTRIBUTING.md.
+      options:
+        - label: It needs no polling or background work while the switcher is closed
+        - label: It could be a setting, for people who don't want it
