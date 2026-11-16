@@ -7,7 +7,7 @@ An Alt+Tab switcher for Windows 11 that appears on **every monitor at once**. Wi
 Three rules guide every feature:
 1. **Lowest resource use possible.** When idle it does no work (0 ms of CPU) and uses about 10–16 MB working set (about 40–50 MB private). The switcher appears about 110–130 ms after Alt+Tab. See [Resource use](#resource-use).
 2. **As many configuration options as possible.** See [Settings](#settings).
-3. **Open source by default.** No telemetry.
+3. **Open source by default.** No telemetry. The app never goes online unless you turn on the update check.
 
 See [ROADMAP.md](ROADMAP.md) for what's next.
 
@@ -190,6 +190,7 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | Key | Default | Meaning |
 |---|---|---|
 | `startWithWindows` | `false` | Start when you sign in to Windows. Same as the tray toggle |
+| `checkForUpdates` | `false` | Ask GitHub for a newer release, at most once a day, at startup (or when you turn this on). If there is one, the tray menu gets a **Download version X…** item and a notification appears; both open the release page. Nothing is downloaded or installed automatically. The request carries only the app's name and version, and this is the only time the app ever goes online. Off by default |
 
 Example:
 

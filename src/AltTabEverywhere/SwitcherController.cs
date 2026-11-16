@@ -174,7 +174,15 @@ internal sealed partial class SwitcherController : IDisposable
     /// Builds the switcher once, cloaked, so the next real Alt+Tab doesn't pay for creating the
     /// overlay threads and compiling the code; then trims memory. Nothing is shown.
     /// </summary>
-    public async void WarmUpThenTrim()
+    public async void WarmUpThenTrim() => await WarmUpThenTrimAsync();
+
+    /// <summary>Gives back memory a one-off job touched (the update check), unless a switcher is open.</summary>
+    public void TrimMemorySoon()
+    {
+        if (!_active) _trimmer.Schedule();
+    }
+
+    private async System.Threading.Tasks.Task WarmUpThenTrimAsync()
     {
         try
         {

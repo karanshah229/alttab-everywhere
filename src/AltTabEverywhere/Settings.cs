@@ -306,6 +306,9 @@ internal sealed class Settings
     /// <summary>Start automatically when you sign in to Windows (per-user, no admin rights).</summary>
     public bool StartWithWindows { get; set; }
 
+    /// <summary>Ask GitHub for a newer release, at most once a day, at startup only. Off by default: the app never goes online unless this is on.</summary>
+    public bool CheckForUpdates { get; set; }
+
     /// <summary>Clamps hand-edited values into ranges the app can cope with.</summary>
     public Settings Normalized()
     {

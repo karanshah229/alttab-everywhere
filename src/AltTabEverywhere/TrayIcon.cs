@@ -52,6 +52,26 @@ internal sealed class TrayIcon : IDisposable
         _icon.DoubleClick += (_, _) => SettingsWindow.Launch();
     }
 
+    private Forms.ToolStripMenuItem? _update;
+
+    /// <summary>
+    /// A newer version exists: a "Download version X…" item at the top of the menu, and (when it was
+    /// only just found) a notification. Both open the release page on GitHub.
+    /// </summary>
+    public void ShowUpdate(UpdateInfo update, bool notify)
+    {
+        if (!update.Url.StartsWith(UpdateCheck.ReleasesPrefix, StringComparison.OrdinalIgnoreCase)) return;
+        void Open() => Process.Start(new ProcessStartInfo(update.Url) { UseShellExecute = true });
+        var menu = _icon.ContextMenuStrip!;
+        if (_update is not null) menu.Items.Remove(_update);
+        _update = new Forms.ToolStripMenuItem($"Download version {update.Version}…", null, (_, _) => Open());
+        menu.Items.Insert(0, _update);
+        _icon.Text = $"AltTab Everywhere {AppInfo.Version} (version {update.Version} available)";
+        if (!notify) return;
+        _icon.BalloonTipClicked += (_, _) => Open();
+        _icon.ShowBalloonTip(8000, "AltTab Everywhere", $"Version {update.Version} is available. Click to open its page.", Forms.ToolTipIcon.Info);
+    }
+
     /// <summary>The app icon at the notification area's size for this DPI (16 px at 100%, 24 at 150%...).</summary>
     internal static System.Drawing.Icon LoadIcon()
     {

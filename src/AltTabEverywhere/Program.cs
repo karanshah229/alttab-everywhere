@@ -93,6 +93,22 @@ internal static class Program
                 systemEvents.ExplorerRestarted += () => Log.Info("Explorer restarted");
 
                 Log.Info($"started, version {AppInfo.Version}");
+
+                // checkForUpdates (opt-in): at startup, and when it's turned on; at most once a day.
+                bool checkedThisRun = false;
+                async void CheckForUpdates()
+                {
+                    if (!settings.Current.CheckForUpdates || checkedThisRun) return;
+                    checkedThisRun = true;
+                    var known = UpdateCheck.Known();
+                    if (known is not null) tray?.ShowUpdate(known, notify: false);
+                    if (!UpdateCheck.Due(DateTime.UtcNow)) return;
+                    var found = await UpdateCheck.CheckAsync();
+                    if (found is not null && found.Version != known?.Version) tray?.ShowUpdate(found, notify: true);
+                    controller.TrimMemorySoon(); // give back what the HTTPS request loaded
+                }
+                settings.Changed += CheckForUpdates;
+                app.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(CheckForUpdates));
                 // Warm up the switcher (invisibly) so the first Alt+Tab is fast, then give back
                 // the memory that startup and warm-up touched.
                 app.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,

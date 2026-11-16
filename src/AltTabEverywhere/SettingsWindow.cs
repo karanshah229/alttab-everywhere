@@ -291,6 +291,7 @@ internal sealed class SettingsWindow : Window
 
         Section("System");
         Toggle("Start with Windows", "No admin rights needed.", "startWithWindows", _s.StartWithWindows);
+        Toggle("Check for updates", "Once a day at startup, from GitHub. Off: never goes online.", "checkForUpdates", _s.CheckForUpdates);
     }
 
     /// <summary>Writes the default value of each key, then rebuilds the window from the file.</summary>
