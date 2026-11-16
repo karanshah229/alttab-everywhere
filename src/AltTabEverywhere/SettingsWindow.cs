@@ -32,6 +32,8 @@ internal sealed class SettingsWindow : Window
         { (GroupWindows.Separate, "One tile per window"), (GroupWindows.Stacked, "One tile per app") };
     private static readonly (SwitcherLayout, string)[] LayoutOptions =
         { (SwitcherLayout.Thumbnails, "Live previews"), (SwitcherLayout.Icons, "Large icons"), (SwitcherLayout.List, "Compact list"), (SwitcherLayout.IconsOnly, "Icons only") };
+    private static readonly (SortOrder, string)[] SortOptions =
+        { (SortOrder.Recent, "Recently used"), (SortOrder.Stacking, "Front to back on screen"), (SortOrder.App, "By app"), (SortOrder.Title, "By title"), (SortOrder.Monitor, "By monitor") };
 
     // Windows' accent palette, then neutrals (useful for backgrounds and text).
     private static readonly string[] Palette =
@@ -220,6 +222,7 @@ internal sealed class SettingsWindow : Window
         Choice("List windows from", "", "listWindowsFrom", _s.ListWindowsFrom, ListFromOptions);
         Choice("Virtual desktops", "", "virtualDesktops", _s.VirtualDesktops, DesktopOptions);
         Choice("Group windows", "Pause on a stack, press ` or click its badge to see its windows.", "groupWindows", _s.GroupWindows, GroupOptions);
+        Choice("Order", "Alt+Tab still starts on the window you used last.", "sortOrder", _s.SortOrder, SortOptions);
         Number("Open a stack after (ms)", "Pausing on a stack (or Back) this long opens it (or goes back). 0: off. 0–5000.",
             "stackOpenDelayMs", _s.StackOpenDelayMs, 0, 5000);
         Choice("Peek", "Outline the selected window where it is.", "peek", _s.Peek,
@@ -698,10 +701,11 @@ internal sealed class SettingsWindow : Window
             overrides.Children.Add(Override("Group windows", shortcut.GroupWindows, v => Shortcut.GroupWindows = v, s => s.GroupWindows, GroupOptions));
             overrides.Children.Add(StayOpenOverride());
             overrides.Children.Add(Override("Layout", shortcut.Layout, v => Shortcut.Layout = v, s => s.Layout, LayoutOptions));
+            overrides.Children.Add(Override("Order", shortcut.SortOrder, v => Shortcut.SortOrder = v, s => s.SortOrder, SortOptions));
             RefreshDefaults(defaults);
 
             bool anyOverride = shortcut.ShowOn != null || shortcut.ListWindowsFrom != null || shortcut.VirtualDesktops != null
-                || shortcut.GroupWindows != null || shortcut.StayOpenAfterAltRelease != null || shortcut.Layout != null;
+                || shortcut.GroupWindows != null || shortcut.StayOpenAfterAltRelease != null || shortcut.Layout != null || shortcut.SortOrder != null;
             overrides.Visibility = anyOverride ? Visibility.Visible : Visibility.Collapsed;
 
             // A flat text toggle rather than an Expander, which would draw a second card inside this one.

@@ -114,6 +114,10 @@ internal sealed class Shortcut
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public SwitcherLayout? Layout { get; set; }
+
+    /// <summary>Overrides sortOrder for this shortcut.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SortOrder? SortOrder { get; set; }
 }
 
 /// <summary>
@@ -155,6 +159,9 @@ internal sealed class Settings
     public VirtualDesktops VirtualDesktops { get; set; } = VirtualDesktops.Current;
 
     public GroupWindows GroupWindows { get; set; } = GroupWindows.Separate;
+
+    /// <summary>Tile order: recently used (like Windows), stacking order, by app, by title, or by monitor.</summary>
+    public SortOrder SortOrder { get; set; } = SortOrder.Recent;
 
     /// <summary>
     /// Stacked mode: resting on a stack this long opens it (its windows as tiles, plus a Back tile;
@@ -320,6 +327,7 @@ internal sealed class Settings
         if (!Enum.IsDefined(ListWindowsFrom)) ListWindowsFrom = ListWindowsFrom.AllMonitors;
         if (!Enum.IsDefined(VirtualDesktops)) VirtualDesktops = VirtualDesktops.Current;
         if (!Enum.IsDefined(GroupWindows)) GroupWindows = GroupWindows.Separate;
+        if (!Enum.IsDefined(SortOrder)) SortOrder = SortOrder.Recent;
         ExcludedApps ??= new List<string>();
         ExcludedTitles ??= new List<string>();
         ExcludedApps.RemoveAll(string.IsNullOrWhiteSpace);
@@ -353,6 +361,7 @@ internal sealed class Settings
         if (shortcut.GroupWindows is { } group && Enum.IsDefined(group)) copy.GroupWindows = group;
         if (shortcut.StayOpenAfterAltRelease is { } stayOpen) copy.StayOpenAfterAltRelease = stayOpen;
         if (shortcut.Layout is { } layout && Enum.IsDefined(layout)) copy.Layout = layout;
+        if (shortcut.SortOrder is { } sort && Enum.IsDefined(sort)) copy.SortOrder = sort;
         // One app's windows are listed one per tile: stacking them would give a single tile.
         if (shortcut.Windows == WindowScope.CurrentApp) copy.GroupWindows = GroupWindows.Separate;
         return copy;

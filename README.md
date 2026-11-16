@@ -92,7 +92,7 @@ Each entry has `keys` and, optionally, any of these. Anything left out uses the 
 |---|---|
 | `keys` | Modifiers (`Alt`, `Ctrl`, `Shift`, `Win`) and one key: `Tab`, `Space`, `` ` `` (the key above Tab), `A`–`Z`, `0`–`9`, `F1`–`F24`. At least one of Alt, Ctrl or Win. Examples: `"Alt+Tab"`, `"Win+Tab"`, `"Ctrl+Alt+Tab"`, ``"Alt+`"`` |
 | `windows` | `"all"` (default) or `"currentApp"`: only the windows of the app that had focus, one tile each, like Cmd+` on macOS or Alt+` on GNOME |
-| `showOn`, `listWindowsFrom`, `virtualDesktops`, `groupWindows`, `stayOpenAfterAltRelease`, `layout` | Override that setting for sessions this shortcut opens |
+| `showOn`, `listWindowsFrom`, `virtualDesktops`, `groupWindows`, `stayOpenAfterAltRelease`, `layout`, `sortOrder` | Override that setting for sessions this shortcut opens |
 
 Shift reverses direction, unless Shift is part of the shortcut. A shortcut that Windows also uses (`Win+Tab` for Task View, `Ctrl+Alt+Tab` for its sticky switcher) is taken over while the app runs. Invalid or repeated entries are skipped and named in the log; if none is valid, Alt+Tab is used.
 
@@ -111,6 +111,7 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | `listWindowsFrom` | `"allMonitors"` | `"allMonitors"`: every switcher lists every window. `"thisMonitor"`: each monitor's switcher lists only the windows on that monitor. Click a tile on any screen to switch to it. If the monitor you're using has no windows, its switcher lists all of them so Alt+Tab still works |
 | `virtualDesktops` | `"current"` | `"current"` or `"all"`. Windows on other desktops show their icon instead of a preview |
 | `groupWindows` | `"separate"` | `"separate"`: one tile per window. `"stacked"`: one tile per app, with a ×N badge; open a stack to pick one of its windows (see `stackOpenDelayMs`). A shortcut with `"windows": "currentApp"` always lists one tile per window. Apps are told apart by their shell app ID, so Chrome profiles stay separate |
+| `sortOrder` | `"recent"` | Tile order. `"recent"`: most recently used first, like Windows. `"stacking"`: front to back as the windows are stacked on screen. `"app"`: by app name, most recent first within each app. `"title"`: by window title, A to Z. `"monitor"`: one run of tiles per screen, left to right, most recent first within each. Whatever the order, Alt+Tab still starts on the window you used before the current one (Shift+Alt+Tab on the least recent). With stacks, a stack sorts by its most recent window. The lookups an order needs (stacking order, app names, monitors) are only made for that order, when the switcher opens (about 2–3 ms for "app") |
 | `stackOpenDelayMs` | `500` | In stacked mode, pausing this long on a stack opens it, and pausing this long on its Back tile goes back. 0–5000; 0 turns pausing off (Alt+` and the badge still open a stack, and Enter, a click or Backspace on Back still go back). The timer only runs while the switcher is open and a stack (or Back) is selected, and never while you're typing a search |
 | `peek` | `"outline"` | `"outline"`: while the switcher is open, a coloured ring is drawn over the edge of the selected window, wherever it is, so you can see which window will come forward (handy on several screens). It sits on top of other windows but under the switcher. Minimized windows and windows on other desktops have no outline. `"off"`: no outline |
 | `peekDelayMs` | `0` | Resting on a tile this long before its outline appears; the outline is hidden while the selection moves. 0–5000 |
@@ -292,7 +293,7 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability), 2 (find windows faster) and 3 (looks and settings) are done. **Phase 4: multi-monitor power tools** is under way: moving a window to this monitor and window actions are done; sorting and grouping, and previews for minimized windows are next.
+See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability), 2 (find windows faster) and 3 (looks and settings) are done. **Phase 4: multi-monitor power tools** is under way: moving a window to this monitor, window actions and sort orders are done; previews for minimized windows are next.
 
 ## License
 

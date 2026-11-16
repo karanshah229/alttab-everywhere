@@ -31,6 +31,7 @@ internal sealed partial class SwitcherController : IDisposable
 
     // ---- Session state ----
     private List<WindowInfo> _windows = new();   // every window in this session, after exclusions
+    private List<WindowInfo> _recent = new();    // the same windows, most recently used first (sortOrder may reorder _windows)
     private List<PlanEntry> _plan = new();       // which overlays show which tiles
     private List<SwitcherItem> _items = new();   // the focus overlay's tiles (what the keyboard drives)
     private int _selected;
@@ -243,7 +244,34 @@ internal sealed partial class SwitcherController : IDisposable
             Hung: settings.NotRespondingBadge));
         _windows = WindowFilter.ApplyExclusions(windows, settings, WindowEnumerator.ProcessPathOf);
         if (settings.SessionWindows == WindowScope.CurrentApp) _windows = CurrentAppWindows(_windows);
+        _recent = _windows;
+        _windows = Sorted(_windows, settings.SortOrder);
         return _windows.Count;
+    }
+
+    /// <summary>sortOrder: the windows in display order. Lookups (stacking order, app names, monitors) happen only for the order that needs them.</summary>
+    private static List<WindowInfo> Sorted(List<WindowInfo> recent, SortOrder order)
+    {
+        switch (order)
+        {
+            case SortOrder.Stacking:
+                var z = WindowEnumerator.StackingOrder();
+                return WindowOrder.Sort(recent, order, zIndex: w => z.TryGetValue(w.Handle, out int i) ? i : int.MaxValue);
+            case SortOrder.App:
+                var names = new Dictionary<IntPtr, string>();
+                return WindowOrder.Sort(recent, order, appName: w =>
+                {
+                    if (!names.TryGetValue(w.Handle, out var name))
+                        names[w.Handle] = name = WindowSearch.AppName(w.AppUserModelId, WindowEnumerator.ProcessPathOf(w));
+                    return name;
+                });
+            case SortOrder.Monitor:
+                var rank = Monitors.GetAll().OrderBy(m => m.Bounds.Left).ThenBy(m => m.Bounds.Top)
+                    .Select((m, i) => (m.Handle, i)).ToDictionary(p => p.Handle, p => p.i);
+                return WindowOrder.Sort(recent, order, monitorRank: w => rank.TryGetValue(w.Monitor, out int r) ? r : int.MaxValue);
+            default:
+                return WindowOrder.Sort(recent, order);
+        }
     }
 
     /// <summary>The windows of the app that had focus; none if focus wasn't on a listed window.</summary>
@@ -299,9 +327,7 @@ internal sealed partial class SwitcherController : IDisposable
             }
 
             // Like Windows: start on the previous tile, unless focus isn't on a listed window.
-            int forwardStart = _items.Count > 1 && _items[0].Contains(_originalForeground) && _items[1].HasWindow ? 1 : 0;
-            // Never start on the Show desktop tile: a quick Alt+Tab with one window shouldn't clear the screen.
-            _selected = reverse ? Math.Max(0, _items.FindLastIndex(i => i.HasWindow)) : forwardStart;
+            _selected = WindowOrder.StartIndex(_items, _recent, _originalForeground, reverse);
 
             // Build the switcher now, invisibly; it's revealed when the build finishes (no delay)
             // or when the show delay ends, whichever is later.
@@ -1058,6 +1084,7 @@ internal sealed partial class SwitcherController : IDisposable
         // Drop references to this session's icons and titles.
         _items = new List<SwitcherItem>();
         _windows = new List<WindowInfo>();
+        _recent = new List<WindowInfo>();
         _trimmer.Schedule();
     }
 

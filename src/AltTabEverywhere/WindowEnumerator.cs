@@ -269,6 +269,18 @@ internal static class WindowEnumerator
     /// Which app a window belongs to, for stacking: the shell's app ID (keeps e.g. Chrome profiles
     /// apart), or the executable path when there is none (fallback window list).
     /// </summary>
+    /// <summary>sortOrder = stacking: each top-level window's place front to back (EnumWindows walks the z-order).</summary>
+    public static Dictionary<IntPtr, int> StackingOrder()
+    {
+        var order = new Dictionary<IntPtr, int>();
+        Native.EnumWindows((hwnd, _) =>
+        {
+            order.TryAdd(hwnd, order.Count);
+            return true;
+        }, IntPtr.Zero);
+        return order;
+    }
+
     public static string AppKey(WindowInfo window) =>
         window.AppUserModelId ?? "exe:" + (GetProcessPath(window.Handle) ?? window.Handle.ToString());
 

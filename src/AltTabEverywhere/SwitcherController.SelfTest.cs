@@ -429,6 +429,59 @@ internal sealed partial class SwitcherController
             }
             End();
 
+            // Sort orders, on real sessions: tiles come in the chosen order, and the selection still
+            // starts on the window used before the current one (or, reversed, the least recent).
+            foreach (var order in Enum.GetValues<SortOrder>())
+            {
+                foreach (bool reverse in new[] { false, true })
+                {
+                    string tag = $"sort {order}{(reverse ? ", reverse" : "")}";
+                    _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+                    _settingsOverride.ShowDesktopTile = false;
+                    _settingsOverride.SortOrder = order;
+                    _settingsOverride.GroupWindows = GroupWindows.Separate;
+                    _settingsOverride.ListWindowsFrom = ListWindowsFrom.AllMonitors;
+                    _settingsOverride.ShowOn = ShowOn.AllMonitors;
+                    _settingsOverride.ShowDelayMs = 0;
+                    BeginSession(reverse, sendMaskKey: false);
+                    await WaitUntilShown();
+                    await Settle();
+                    var shownWindows = _items.Select(i => i.Shown).ToList();
+                    Func<WindowInfo, IComparable>? key = order switch
+                    {
+                        SortOrder.Title => w => w.Title.ToUpperInvariant(),
+                        SortOrder.App => w => WindowSearch.AppName(w.AppUserModelId, WindowEnumerator.ProcessPathOf(w)).ToUpperInvariant(),
+                        SortOrder.Stacking => StackKey(WindowEnumerator.StackingOrder()),
+                        SortOrder.Monitor => MonitorKey(),
+                        _ => null,
+                    };
+                    static Func<WindowInfo, IComparable> StackKey(Dictionary<IntPtr, int> z) => w => z.TryGetValue(w.Handle, out int i) ? i : int.MaxValue;
+                    static Func<WindowInfo, IComparable> MonitorKey()
+                    {
+                        var rank = Monitors.GetAll().OrderBy(m => m.Bounds.Left).ThenBy(m => m.Bounds.Top).Select((m, i) => (m.Handle, i)).ToDictionary(p => p.Handle, p => p.i);
+                        return w => rank.TryGetValue(w.Monitor, out int r) ? r : int.MaxValue;
+                    }
+                    if (key is not null)
+                    {
+                        checks++;
+                        // Titles compare with the culture's rules in the app; upper-invariant is close enough except for ties, so only check
+                        // orders whose keys are numbers strictly, and titles/apps loosely (non-decreasing under the same comparer).
+                        var comparer = order is SortOrder.Title or SortOrder.App
+                            ? Comparer<IComparable>.Create((a, b) => string.Compare((string)a, (string)b, StringComparison.CurrentCultureIgnoreCase))
+                            : Comparer<IComparable>.Default;
+                        for (int i = 1; i < shownWindows.Count; i++)
+                            if (comparer.Compare(key(shownWindows[i - 1]), key(shownWindows[i])) > 0) { Fail($"{tag}: tiles {i - 1} and {i} out of order"); break; }
+                    }
+                    int expected = WindowOrder.StartIndex(_items, _recent, _originalForeground, reverse);
+                    var recentOthers = _recent.Where(w => !(_items.FirstOrDefault(i => i.Contains(_originalForeground))?.Contains(w.Handle) ?? false)).ToList();
+                    checks += 2;
+                    if (_selected != expected) Fail($"{tag}: started on tile {_selected}, expected {expected}");
+                    if (recentOthers.Count > 0 && !_items[_selected].Contains((reverse ? recentOthers[^1] : recentOthers[0]).Handle))
+                        Fail($"{tag}: the start tile isn't the {(reverse ? "least" : "most")} recent other window");
+                    End();
+                }
+            }
+
             // Window actions, on a throwaway window of our own shown as the first tile of a live session:
             // always on top keeps the switcher above it, minimize toggles without switching, and
             // the maximize decision and change work.
