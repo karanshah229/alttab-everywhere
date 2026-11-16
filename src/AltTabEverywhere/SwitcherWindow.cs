@@ -657,10 +657,19 @@ internal sealed class SwitcherWindow : Window
             menu.Foreground = _theme.Text;
         }
         string Hint(string key) => SwitcherKey.TryParse(key, out _) ? key : "";
+        // Running as administrator (and this app isn't): Windows only lets this app switch to it.
+        bool blocked = WindowActions.IsBlocked(hwnd);
         void Add(string text, TileMenuCommand command, string gesture = "", bool isChecked = false)
         {
             var item = new MenuItem { Header = text, InputGestureText = gesture, IsCheckable = isChecked, IsChecked = isChecked };
             if (!_theme.IsHighContrast) item.Foreground = _theme.Text;
+            if (blocked && command != TileMenuCommand.Switch)
+            {
+                item.IsEnabled = false;
+                item.Opacity = 0.45;
+                item.ToolTip = "Runs as administrator: Windows doesn't let this app change it";
+                ToolTipService.SetShowOnDisabled(item, true);
+            }
             item.Click += (_, _) => TileMenuChosen?.Invoke(index, command);
             menu.Items.Add(item);
         }

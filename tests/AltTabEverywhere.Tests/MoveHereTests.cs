@@ -136,3 +136,17 @@ public class WindowActionTests
         Assert.DoesNotContain(StateBadges.AlwaysOnTop, StateBadges.For(w, new Settings { AlwaysOnTopBadge = false }));
     }
 }
+
+public class ElevatedWindowTests
+{
+    [Fact]
+    public void No_window_is_not_blocked() => Assert.False(WindowActions.IsBlocked(IntPtr.Zero));
+
+    [Fact]
+    public void A_window_of_this_process_is_never_blocked()
+    {
+        // The test runner's own console or hidden windows: same process, same elevation.
+        IntPtr own = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+        if (own != IntPtr.Zero) Assert.False(WindowActions.IsBlocked(own));
+    }
+}

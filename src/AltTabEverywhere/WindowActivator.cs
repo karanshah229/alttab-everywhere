@@ -11,7 +11,18 @@ internal static class WindowActivator
     {
         if (hwnd == IntPtr.Zero) return;
 
-        if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
+        if (Native.IsIconic(hwnd))
+        {
+            Native.ShowWindow(hwnd, Native.SW_RESTORE);
+            // Windows refuses that (access denied) for windows running as administrator when this app
+            // isn't: they would get focus but stay minimized. SwitchToThisWindow, which Windows' own
+            // switcher uses, is allowed and restores them.
+            if (Native.IsIconic(hwnd))
+            {
+                SwitchToThisWindow(hwnd, true);
+                Log.Info("restored a minimized window that refused a normal restore (running as administrator?)");
+            }
+        }
 
         // If the app has a modal dialog open, activate that instead (what Windows does).
         IntPtr popup = Native.GetLastActivePopup(hwnd);
@@ -52,4 +63,8 @@ internal static class WindowActivator
         inputs[1].U.ki = new KEYBDINPUT { wVk = VK_UNASSIGNED, dwFlags = Native.KEYEVENTF_KEYUP };
         Native.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
     }
+
+    /// <summary>Documented, though "not intended for general use": what Windows' switcher calls to bring a window forward, restoring it if minimized.</summary>
+    [DllImport("user32.dll")]
+    private static extern void SwitchToThisWindow(IntPtr hwnd, [MarshalAs(UnmanagedType.Bool)] bool altTab);
 }

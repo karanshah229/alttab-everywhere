@@ -33,6 +33,17 @@ internal enum TileMenuCommand
 
 internal static class WindowActions
 {
+    /// <summary>
+    /// Windows refuses to let this app minimize, maximize, move, pin or close the window: it runs
+    /// as administrator and this app doesn't. Switching to it still works.
+    /// </summary>
+    public static bool IsBlocked(IntPtr hwnd)
+    {
+        if (ProcessElevation.IsSelfElevated) return false;
+        Native.GetWindowThreadProcessId(hwnd, out uint pid);
+        return ProcessElevation.IsElevated(pid);
+    }
+
     /// <summary>Whether the action switches to the window and closes the switcher.</summary>
     public static bool EndsSession(WindowAction action) => action is WindowAction.MoveHere or WindowAction.Maximize;
 

@@ -677,10 +677,13 @@ internal sealed partial class SwitcherController : IDisposable
     private void CloseWindows(IReadOnlyCollection<IntPtr> handles)
     {
         if (!_uiPrepared || handles.Count == 0) return; // too early: tiles aren't built yet
-        foreach (var hwnd in handles) Native.PostMessage(hwnd, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-        Log.Info(handles.Count == 1 ? "closed a window from the switcher" : $"closed {handles.Count} windows of an app from the switcher");
+        // Windows refuses the message for windows running as administrator (when this app isn't):
+        // those stay listed, since they stay open.
+        var closing = new HashSet<IntPtr>(handles.Where(hwnd => Native.PostMessage(hwnd, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero)));
+        if (closing.Count < handles.Count) Log.Info($"{handles.Count - closing.Count} window(s) refused to be closed from the switcher (running as administrator?)");
+        if (closing.Count == 0) return;
+        Log.Info(closing.Count == 1 ? "closed a window from the switcher" : $"closed {closing.Count} windows of an app from the switcher");
 
-        var closing = new HashSet<IntPtr>(handles);
         _windows.RemoveAll(w => closing.Contains(w.Handle));
         if (_windows.Count == 0)
         {
@@ -956,16 +959,16 @@ internal sealed partial class SwitcherController : IDisposable
             case WindowAction.Maximize:
                 bool maximize = WindowActions.ShouldMaximize(hwnd); // decided before switching restores it
                 WindowActivator.Activate(hwnd);
-                WindowActions.SetMaximized(hwnd, maximize);
+                if (!WindowActions.IsBlocked(hwnd)) WindowActions.SetMaximized(hwnd, maximize); // else: just switch
                 End();
                 break;
             case WindowAction.Minimize:
-                if (Native.IsHungAppWindow(hwnd)) break;
+                if (Native.IsHungAppWindow(hwnd) || BlockedByElevation(hwnd)) break;
                 bool minimized = WindowActions.ToggleMinimized(hwnd);
                 UpdateWindow(hwnd, w => w with { IsMinimized = minimized });
                 break;
             case WindowAction.AlwaysOnTop:
-                if (Native.IsHungAppWindow(hwnd)) break; // the change waits on the app
+                if (Native.IsHungAppWindow(hwnd) || BlockedByElevation(hwnd)) break; // the change waits on the app
                 bool onTop = WindowActions.ToggleTopmost(hwnd);
                 // The window went to the top of the always-on-top windows: put the switcher back over it.
                 foreach (var entry in _plan)
@@ -978,6 +981,14 @@ internal sealed partial class SwitcherController : IDisposable
                     .Select(w => w.Handle).Distinct().ToList());
                 break;
         }
+    }
+
+    /// <summary>The window runs as administrator and this app doesn't: Windows won't let it be changed. Logged, so a key that "does nothing" can be explained.</summary>
+    private static bool BlockedByElevation(IntPtr hwnd)
+    {
+        if (!WindowActions.IsBlocked(hwnd)) return false;
+        Log.Info("window action skipped: the window runs as administrator, so Windows doesn't let this app change it");
+        return true;
     }
 
     /// <summary>A window's state changed from the switcher (minimized, always on top): redraw its tile, keeping the selection.</summary>
