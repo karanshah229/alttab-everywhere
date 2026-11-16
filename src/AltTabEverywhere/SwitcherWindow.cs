@@ -72,6 +72,7 @@ internal sealed class SwitcherWindow : Window
 
     private int _columns = 1;
     private bool _showThumbnails = true;
+    private bool _minimizedPreviews = true; // minimizedPreviews: minimized windows show their last image
     private SwitcherLayout _layout;
 
     /// <summary>Tiles per row in the current session (the same on every monitor).</summary>
@@ -263,6 +264,7 @@ internal sealed class SwitcherWindow : Window
         ApplyTheme(Theme.Current);
         // Only the thumbnails layout has room for live previews; the others never register any.
         _showThumbnails = settings.ShowThumbnails && settings.Layout == SwitcherLayout.Thumbnails;
+        _minimizedPreviews = settings.MinimizedPreviews;
         _middleClickCloses = settings.MiddleClickCloses;
         _ctrlClickMovesHere = settings.CtrlClickMovesHere;
         _menuSettings = settings.TileMenu ? settings : null;
@@ -739,10 +741,30 @@ internal sealed class SwitcherWindow : Window
 
     private void RegisterThumbnail(Tile tile)
     {
-        // Minimized windows and windows on other desktops have nothing useful to show: keep the icon.
-        if (!_showThumbnails || tile.Window is null || tile.Window.IsMinimized || tile.Window.OnOtherDesktop) return;
-        if (Native.DwmRegisterThumbnail(Handle, tile.Window.Handle, out var thumb) == 0)
-            tile.Thumbnail = thumb;
+        // Windows on other desktops have nothing useful to show: keep the icon. Minimized windows
+        // do (minimizedPreviews): DWM keeps their last image, as the taskbar's previews show.
+        if (!_showThumbnails || tile.Window is not { } window || window.OnOtherDesktop) return;
+        bool minimized = window.IsMinimized || Native.IsIconic(window.Handle);
+        if (minimized && !_minimizedPreviews) return;
+        if (Native.DwmRegisterThumbnail(Handle, window.Handle, out var thumb) != 0) return;
+        // A window minimized before it ever drew (started minimized, say) only has its tiny
+        // minimized caption to show: the icon is better.
+        if (minimized && (Native.DwmQueryThumbnailSourceSize(thumb, out var source) != 0 || IsMinimizedCaption(source.cx, source.cy)))
+        {
+            Native.DwmUnregisterThumbnail(thumb);
+            return;
+        }
+        tile.Thumbnail = thumb;
+    }
+
+    /// <summary>The size Windows gives a minimized window's own caption (about 160×28), as opposed to its last real image.</summary>
+    internal static bool IsMinimizedCaption(int width, int height) => width <= 260 && height <= 60;
+
+    /// <summary>For the self-test: the size of tile <paramref name="index"/>'s live preview, or (0, 0) if it shows the icon.</summary>
+    public (int Width, int Height) PreviewSourceSize(int index)
+    {
+        if (index < 0 || index >= _tiles.Count || _tiles[index].Thumbnail == IntPtr.Zero) return (0, 0);
+        return Native.DwmQueryThumbnailSourceSize(_tiles[index].Thumbnail, out var s) == 0 ? (s.cx, s.cy) : (0, 0);
     }
 
     private static void UnregisterThumbnail(Tile tile)

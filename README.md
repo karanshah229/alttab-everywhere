@@ -153,6 +153,7 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 |---|---|---|
 | `layout` | `"thumbnails"` | How tiles look. `"thumbnails"`: a title and a live preview. `"icons"`: a title and a large app icon. `"list"`: one compact row per window (icon and full title) in a single column that scrolls. `"iconsOnly"`: small square icon tiles, with the selected window's title shown under the grid. Only `"thumbnails"` shows live previews, so the other three use less memory per open. Each shortcut can use its own layout |
 | `showThumbnails` | `true` | In the `"thumbnails"` layout: live window previews. `false` shows the app icon instead |
+| `minimizedPreviews` | `true` | Minimized windows show their last image too, as the taskbar's previews do: Windows (DWM) keeps it, so this costs no extra memory. A window minimized before it ever drew (started minimized, for example) shows its icon. `false`: minimized windows always show their icon |
 | `tileWidth` | `240` | In the `"thumbnails"` layout: tile width, 80–600. Tiles shrink slightly when there are many windows, then the grid scrolls |
 | `thumbnailHeight` | `140` | Preview height, 50–400 |
 | `iconSize` | `48` | App icon size in the `"icons"` and `"iconsOnly"` layouts, 16–128. Shrinks with the tiles when there are many windows |
@@ -210,7 +211,7 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 | Exclusions and per-monitor lists | Pure filters, unit-tested | `WindowFilter.cs` |
 | Virtual desktops | `IVirtualDesktopManager::IsWindowOnCurrentVirtualDesktop` (documented) plus `DWMWA_CLOAKED` | `Interop/VirtualDesktop.cs` |
 | Start with Windows | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | `StartupRegistration.cs` |
-| Live previews | `DwmRegisterThumbnail` / `DwmUpdateThumbnailProperties`. DWM draws them on top of the window, so they are cropped to the scroll viewport by hand | `SwitcherWindow.cs` |
+| Live previews | `DwmRegisterThumbnail` / `DwmUpdateThumbnailProperties`, minimized windows included (DWM keeps their last image; a window with only its 160×28 minimized caption falls back to its icon). DWM draws them on top of the window, so they are cropped to the scroll viewport by hand | `SwitcherWindow.cs` |
 | Grid and scrolling | One column count for all monitors; 75% × 75% cap | `TileLayout.cs` |
 | App stacks | Grouped by shell app ID, falling back to the executable path | `SwitcherItem.cs` |
 | Store app icons | `SHCreateItemInKnownFolder(FOLDERID_AppsFolder, appId)` and `IShellItemImageFactory::GetImage`, only for `ApplicationFrameWindow` windows | `Interop/AppIcons.cs` |
@@ -284,7 +285,7 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 - **Undocumented shell interfaces:** their GUIDs and method layouts change between Windows releases. Only methods verified on build 26200 are declared; a later method, `IsTray`, is at a different position on that build and crashes. If a future build breaks the interfaces, the app falls back to the heuristic filter and logs `window list source: heuristic filter`. The fallback lists some hidden windows, such as apps that hide themselves via `ITaskbarList::DeleteTab` (for example Superwhisper).
 
 - **Elevated (admin) windows:** while one has focus, the hook receives no keys, so Windows' own Alt+Tab appears instead. Fixing this needs a signed build with `uiAccess="true"` installed under Program Files.
-- **Minimized windows** show their icon instead of a live preview.
+- **Minimized windows** that were minimized before they ever drew (started minimized, for example) show their icon, since Windows has no image of them.
 - **Store/UWP apps** show a generic icon when `storeAppIcons` is off.
 - **Peek** outlines a window where it was when the selection reached it: a window that moves while the switcher is open isn't followed. The outline stays under the switcher, so a window entirely behind the switcher shows no visible outline on that screen.
 - **Search ignores AltGr characters** (AltGr is Ctrl+Alt to Windows, and Ctrl combinations are left alone) and dead-key accents.
@@ -293,7 +294,7 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability), 2 (find windows faster) and 3 (looks and settings) are done. **Phase 4: multi-monitor power tools** is under way: moving a window to this monitor, window actions and sort orders are done; previews for minimized windows are next.
+See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability), 2 (find windows faster), 3 (looks and settings) and 4 (multi-monitor power tools) are done. Next up is **Phase 5: public release**.
 
 ## License
 

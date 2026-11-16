@@ -498,6 +498,9 @@ internal sealed partial class SwitcherController
                     var info = new WindowInfo(hwnd, "actions test", null, Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST), false, null);
                     _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
                     _settingsOverride.ShowDesktopTile = false;
+                    _settingsOverride.Layout = SwitcherLayout.Thumbnails;
+                    _settingsOverride.ShowThumbnails = true;
+                    _settingsOverride.MinimizedPreviews = true;
                     _items = new List<SwitcherItem> { new(new[] { info }), new(new[] { real[0] }) };
                     _testItems = _items; // re-plans after an action keep these tiles
                     _windows = _items.SelectMany(i => i.Windows).ToList();
@@ -535,6 +538,18 @@ internal sealed partial class SwitcherController
                     await Settle();
                     checks++;
                     if (!Native.IsIconic(hwnd)) Fail("minimize: not minimized");
+                    // Minimized, it still shows its last image (not just its minimized caption), unless that's turned off.
+                    Replan(items => 0);
+                    await Settle();
+                    var minimizedPreview = _plan[0].Host.Query(w => w.PreviewSourceSize(0));
+                    checks++;
+                    if (minimizedPreview.Width < 300 || minimizedPreview.Height < 150) Fail($"minimized preview: {minimizedPreview.Width}x{minimizedPreview.Height}, expected its last image");
+                    _settingsOverride.MinimizedPreviews = false;
+                    Replan(items => 0);
+                    await Settle();
+                    checks++;
+                    if (_plan[0].Host.Query(w => w.PreviewSourceSize(0)) != (0, 0)) Fail("minimized preview shown with minimizedPreviews off");
+                    _settingsOverride.MinimizedPreviews = true;
                     Perform(WindowAction.Minimize, probeItem, null);
                     await Settle();
                     checks += 2;

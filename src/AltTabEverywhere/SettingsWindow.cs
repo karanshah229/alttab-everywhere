@@ -277,6 +277,7 @@ internal sealed class SettingsWindow : Window
             (HighContrastMode.On, "Always"),
             (HighContrastMode.Off, "Never"));
         Toggle("Live previews in tiles", "Live previews layout. Off: app icons, less memory.", "showThumbnails", _s.ShowThumbnails);
+        Toggle("Previews of minimized windows", "Their last image, as on the taskbar. Off: their icon.", "minimizedPreviews", _s.MinimizedPreviews);
         Number("Tile width", "Live previews layout. 80–600.", "tileWidth", _s.TileWidth, 80, 600);
         Number("Preview height", "Live previews layout. 50–400.", "thumbnailHeight", _s.ThumbnailHeight, 50, 400);
         Number("Icon size", "Large icons and icons only. 16–128.", "iconSize", _s.IconSize, 16, 128);

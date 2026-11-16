@@ -275,6 +275,9 @@ internal sealed class Settings
     /// <summary>Live DWM thumbnails. When false, tiles show the app icon only.</summary>
     public bool ShowThumbnails { get; set; } = true;
 
+    /// <summary>Minimized windows show their last image too (DWM keeps it, as for the taskbar previews); off: their icon.</summary>
+    public bool MinimizedPreviews { get; set; } = true;
+
     /// <summary>Tile size in device-independent pixels before any shrink-to-fit.</summary>
     public double TileWidth { get; set; } = 240;
 
