@@ -9,26 +9,53 @@ An Alt+Tab switcher for Windows 11 that appears on **every monitor at once**. Wi
 Three rules guide every feature:
 1. **Lowest resource use possible.** When idle it does no work (0 ms of CPU) and uses about 10–16 MB working set (about 40–50 MB private). The switcher appears about 110–130 ms after Alt+Tab. See [Resource use](#resource-use).
 2. **As many configuration options as possible.** See [Settings](#settings).
-3. **Open source by default.** No telemetry. The app never goes online unless you turn on the update check.
+3. **Open source, built on your machine.** Everything you run, you built from code you can read; ready-made downloads exist only for convenience. No telemetry: the app never goes online unless you turn on the update check.
 
 See [ROADMAP.md](ROADMAP.md) for what's next.
 
 ## Install
 
-From the [Releases](https://github.com/karanshah229/alttab-everywhere/releases) page:
+### Build it on your PC (recommended)
+
+Everything you run, you built from code you can read. You need Windows 10 or 11, [Git](https://git-scm.com/) and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+
+```bash
+git clone https://github.com/karanshah229/alttab-everywhere.git
+```
+
+```bash
+cd alttab-everywhere
+```
+
+```bash
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+It builds the app and installs it for you in `%LOCALAPPDATA%\Programs\AltTab Everywhere`, with no admin rights, then starts it. Turn on **Start with Windows** from its tray icon to keep it running. Run it again after `git pull` to update; your settings are kept.
+
+**Working over administrator windows too.** While a window running as administrator (an admin terminal, say) has focus, Windows keeps the keyboard from every app that isn't elevated, so its own Alt+Tab appears. Windows lets a switcher past that only if it is signed and installed under Program Files. Instead of buying a certificate, this signs it on your own PC:
+
+```bash
+powershell -ExecutionPolicy Bypass -File install.ps1 -AdminWindows
+```
+
+With one administrator prompt it builds the `uiAccess` version, installs it in `C:\Program Files\AltTab Everywhere`, creates a code-signing certificate for this PC only, trusts it on this PC, signs the app, and **deletes the certificate's private key straight away**, so nothing else can ever be signed with it. Each run makes a fresh certificate and removes the previous one.
+
+To remove it (and the certificate, if any); add `-RemoveSettings` to delete your settings and log too:
+
+```bash
+powershell -ExecutionPolicy Bypass -File uninstall.ps1
+```
+
+### Ready-made downloads
+
+For convenience, each [release](https://github.com/karanshah229/alttab-everywhere/releases) also has zips built by GitHub from the same code. They aren't signed, so Windows SmartScreen warns the first time you run one (**More info** → **Run anyway**), and they can't work over administrator windows.
 
 - **`AltTabEverywhere-<version>-win-x64.zip`** (or `-win-arm64` for Arm PCs): about 250 KB. Needs the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0), which it shares with other apps, so it's the lightest choice.
 - **`…-selfcontained.zip`**: one exe with .NET inside (about 65 MB) for PCs without the runtime.
 
-Unzip it anywhere and run `AltTabEverywhere.exe`. Turn on **Start with Windows** from its tray icon to keep it running. `SHA256SUMS.txt` lists each zip's checksum.
-
-Once the winget package is accepted:
-
-```bash
-winget install AltTabEverywhere.AltTabEverywhere
-```
-
-## Run from source
+Unzip it anywhere and run `AltTabEverywhere.exe`. `SHA256SUMS.txt` lists each zip's checksum. Once the winget package is accepted: `winget install AltTabEverywhere.AltTabEverywhere`.
+## Run without installing (development)
 
 Requires the .NET 10 SDK on Windows 10 or 11.
 
@@ -239,6 +266,7 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 | Peek | A click-through popup (layered, `WS_EX_TRANSPARENT`) shaped into a ring with `SetWindowRgn` and painted by its class brush, placed on `DWMWA_EXTENDED_FRAME_BOUNDS` just below the switcher in the topmost band. Created on the first peek of a session and destroyed when the session ends | `Interop/PeekOutline.cs` |
 | Show desktop tile | `Shell.Application` (`IShellDispatch4::ToggleDesktop`), created when the tile is picked and released straight after | `Interop/ShellDesktop.cs` |
 | Move here | `GetWindowPlacement` / `SetWindowPlacement` with the normal position mapped onto the new work area (workspace coordinates allowed for), then `SW_MAXIMIZE` for maximized windows | `Interop/WindowMover.cs` |
+| Working over admin windows | `uiAccess="true"` in `app.uiaccess.manifest` (built with `-p:UiAccess=true`), signed with a certificate made, trusted and then stripped of its private key on the user's own PC by `install.ps1 -AdminWindows`; the app reads `TokenUIAccess` and then allows window actions on admin windows | `install.ps1`, `Interop/ProcessElevation.cs` |
 | Window actions | `ShowWindowAsync` (minimize, restore, maximize: never waits on a frozen app), `SetWindowPos(HWND_TOPMOST)` followed by raising the switcher again, and `WM_CLOSE` to each of an app's windows | `WindowActions.cs` |
 | Accessibility | Tiles are UI Automation list items (`TileBorder`, `TilePanel`) named from their window, with `PositionInSet`/`SizeOfSet`; focus follows the selection; "No windows match" is a live region. Contrast theme read with `SPI_GETHIGHCONTRAST` and `GetSysColor`, refreshed on `WM_SYSCOLORCHANGE` | `TileAutomation.cs`, `Theme.cs` |
 | Switch windows | `SetForegroundWindow`, with an `AttachThreadInput` fallback | `WindowActivator.cs` |
@@ -304,7 +332,7 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 - **Undocumented shell interfaces:** their GUIDs and method layouts change between Windows releases. Only methods verified on build 26200 are declared; a later method, `IsTray`, is at a different position on that build and crashes. If a future build breaks the interfaces, the app falls back to the heuristic filter and logs `window list source: heuristic filter`. The fallback lists some hidden windows, such as apps that hide themselves via `ITaskbarList::DeleteTab` (for example Superwhisper).
 
-- **Elevated (admin) windows:** while one has focus, the hook receives no keys, so Windows' own Alt+Tab appears instead. Fixing this needs a signed build with `uiAccess="true"` installed under Program Files. Unless this app also runs as administrator, Windows only lets it switch to such windows (a minimized one is restored through `SwitchToThisWindow`, as Windows' own switcher does): it can't minimize, maximize, move, pin or close them, so those right-click entries are greyed out and their keys do nothing (the log says why).
+- **Elevated (admin) windows:** while one has focus, the hook receives no keys, so Windows' own Alt+Tab appears instead, unless you installed with `install.ps1 -AdminWindows` (see [Install](#install)). Without that (or running as administrator), Windows only lets it switch to such windows (a minimized one is restored through `SwitchToThisWindow`, as Windows' own switcher does): it can't minimize, maximize, move, pin or close them, so those right-click entries are greyed out and their keys do nothing (the log says why).
 - **Minimized windows** that were minimized before they ever drew (started minimized, for example) show their icon, since Windows has no image of them.
 - **Store/UWP apps** show a generic icon when `storeAppIcons` is off.
 - **Peek** outlines a window where it was when the selection reached it: a window that moves while the switcher is open isn't followed. The outline stays under the switcher, so a window entirely behind the switcher shows no visible outline on that screen.

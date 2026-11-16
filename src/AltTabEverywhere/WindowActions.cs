@@ -39,7 +39,7 @@ internal static class WindowActions
     /// </summary>
     public static bool IsBlocked(IntPtr hwnd)
     {
-        if (ProcessElevation.IsSelfElevated) return false;
+        if (ProcessElevation.IsSelfElevated || ProcessElevation.HasUiAccess) return false;
         Native.GetWindowThreadProcessId(hwnd, out uint pid);
         return ProcessElevation.IsElevated(pid);
     }

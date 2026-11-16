@@ -42,6 +42,26 @@ internal static class ProcessElevation
     /// <summary>Whether this app itself runs as administrator.</summary>
     public static bool IsSelfElevated => SelfElevated.Value;
 
+    private const int TokenUIAccess = 26;
+    private static readonly Lazy<bool> SelfUiAccess = new(() =>
+    {
+        if (!OpenProcessToken(Native.GetCurrentProcess(), TOKEN_QUERY, out IntPtr token)) return false;
+        try
+        {
+            return GetTokenInformation(token, TokenUIAccess, out int value, sizeof(int), out _) && value != 0;
+        }
+        finally
+        {
+            Native.CloseHandle(token);
+        }
+    });
+
+    /// <summary>
+    /// Whether this app runs with uiAccess (the signed build install.ps1 -AdminWindows puts under
+    /// Program Files): it then gets keys while an administrator window has focus and may act on such windows.
+    /// </summary>
+    public static bool HasUiAccess => SelfUiAccess.Value;
+
     private static bool IsElevated(IntPtr process)
     {
         if (!OpenProcessToken(process, TOKEN_QUERY, out IntPtr token)) return false;

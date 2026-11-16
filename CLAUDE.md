@@ -6,7 +6,7 @@ Every change follows these three rules, in this order when they conflict:
 
 1. **Lowest resource use possible.** It's an always-on app; see the resource budget below.
 2. **As many configuration options as possible.** If a behaviour could reasonably go either way, make it a setting with a sensible default instead of hard-coding it. Document every setting in the README's settings table.
-3. **Open source by default.** Develop in the open on GitHub (`karanshah229/alttab-everywhere`). No telemetry, no closed components, no features that need a paid service.
+3. **Open source, built on your machine.** Everything you run, you built from code you can read: `install.ps1` builds and installs it, and `install.ps1 -AdminWindows` signs it on the user's own PC (so no code-signing certificate is ever bought). Ready-made downloads exist only for convenience. Develop in the open on GitHub (`karanshah229/alttab-everywhere`). No telemetry, no closed components, no features that need a paid service.
 
 ## Working agreement
 
@@ -26,4 +26,5 @@ This app runs all the time, from Windows startup, usually on a laptop. Every cha
 - Build: `dotnet build`. Unit tests: `dotnet test`.
 - Navigation self-test on the real overlays, all monitors: run the app with `--selftest` (exit code 0 means pass; details in `%LOCALAPPDATA%\AltTabEverywhere\log.txt`). Run it after any change to layout or navigation.
 - Stop the running `AltTabEverywhere.exe` before building; the running exe locks the build output.
+- The user runs an installed copy: after a change is done and tested, update it with `install.ps1` (or `install.ps1 -AdminWindows` if that is how it was installed; that needs their administrator prompt, so ask them to run it). Never add certificates or trust anything on the user's machine yourself.
 - Commit to `main` (the user's choice); end commit messages with the Co-Authored-By line.

@@ -10,6 +10,12 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- dotnet publish -p:UiAccess=true (install.ps1 -AdminWindows): runs with uiAccess, which Windows
+         only allows for a signed exe under Program Files. -->
+    <ApplicationManifest Condition="'$(UiAccess)' == 'true'">app.uiaccess.manifest</ApplicationManifest>
+    <!-- Its own intermediate files, so a normal build never picks up the uiAccess manifest (an unsigned
+         uiAccess exe won't start). -->
+    <IntermediateOutputPath Condition="'$(UiAccess)' == 'true'">obj\uiaccess\$(Configuration)\</IntermediateOutputPath>
     <!-- Drawn by tools/IconGen. -->
     <ApplicationIcon>Assets/app.ico</ApplicationIcon>
     <!-- WFO0003 wants DPI set via the WinForms API; the UI is WPF, so the manifest is the right place. -->

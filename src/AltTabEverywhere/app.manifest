@@ -5,8 +5,8 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!-- uiAccess="true" would let the hook see keys while an elevated window has focus,
-             but requires a signed exe installed under Program Files. Not for the prototype. -->
+        <!-- uiAccess="true" would let the hook see keys while an elevated window has focus, but
+             needs a signed exe under Program Files: see app.uiaccess.manifest and install.ps1. -->
         <requestedExecutionLevel level="asInvoker" uiAccess="false" />
       </requestedPrivileges>
     </security>

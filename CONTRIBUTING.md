@@ -8,7 +8,7 @@ Every change follows these, in this order when they conflict:
 
 1. **Lowest resource use possible.** The app runs all the time, usually on a laptop. It must do no work while idle: no polling, no timers. It reacts only to the keyboard hook and to system events. Everything a switcher session creates (previews, tiles, bitmaps) is released when the session closes.
 2. **As many configuration options as possible.** If a behaviour could reasonably go either way, make it a setting with a sensible default. Every setting goes in the README's settings table and in the settings window.
-3. **Open source by default.** No telemetry, no closed components, no features that need a paid service.
+3. **Open source, built on your machine.** Everything people run, they build from code they can read (`install.ps1`); ready-made downloads are a convenience. No telemetry, no closed components, no features that need a paid service: not even a code-signing certificate (`install.ps1 -AdminWindows` signs on the user's own PC).
 
 ## Build and test
 

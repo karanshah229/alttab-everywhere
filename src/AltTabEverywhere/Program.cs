@@ -92,7 +92,7 @@ internal static class Program
                 systemEvents.ColorsChanged += controller.OnSystemColorsChanged;
                 systemEvents.ExplorerRestarted += () => Log.Info("Explorer restarted");
 
-                Log.Info($"started, version {AppInfo.Version}");
+                Log.Info($"started, version {AppInfo.Version}{(Interop.ProcessElevation.HasUiAccess ? ", with uiAccess (works over administrator windows)" : "")}");
 
                 // checkForUpdates (opt-in): at startup, and when it's turned on; at most once a day.
                 bool checkedThisRun = false;

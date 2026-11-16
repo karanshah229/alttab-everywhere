@@ -150,3 +150,18 @@ public class ElevatedWindowTests
         if (own != IntPtr.Zero) Assert.False(WindowActions.IsBlocked(own));
     }
 }
+
+public class UiAccessTests
+{
+    /// <summary>Only a signed build under Program Files gets uiAccess; the test runner never does.</summary>
+    [Fact]
+    public void The_test_runner_has_no_ui_access() => Assert.False(AltTabEverywhere.Interop.ProcessElevation.HasUiAccess);
+
+    [Fact]
+    public void The_normal_build_asks_for_no_ui_access_and_the_variant_does()
+    {
+        string dir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../src/AltTabEverywhere"));
+        Assert.Contains("uiAccess=\"false\" />", File.ReadAllText(Path.Combine(dir, "app.manifest")));
+        Assert.Contains("uiAccess=\"true\" />", File.ReadAllText(Path.Combine(dir, "app.uiaccess.manifest")));
+    }
+}
