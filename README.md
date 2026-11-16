@@ -11,7 +11,22 @@ Three rules guide every feature:
 
 See [ROADMAP.md](ROADMAP.md) for what's next.
 
-## Run it
+## Install
+
+From the [Releases](https://github.com/karanshah229/alttab-everywhere/releases) page:
+
+- **`AltTabEverywhere-<version>-win-x64.zip`** (or `-win-arm64` for Arm PCs): about 250 KB. Needs the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0), which it shares with other apps, so it's the lightest choice.
+- **`…-selfcontained.zip`**: one exe with .NET inside (about 65 MB) for PCs without the runtime.
+
+Unzip it anywhere and run `AltTabEverywhere.exe`. Turn on **Start with Windows** from its tray icon to keep it running. `SHA256SUMS.txt` lists each zip's checksum.
+
+Once the winget package is accepted:
+
+```bash
+winget install AltTabEverywhere.AltTabEverywhere
+```
+
+## Run from source
 
 Requires the .NET 10 SDK on Windows 10 or 11.
 
