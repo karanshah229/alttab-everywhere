@@ -1,0 +1,4 @@
+* { box-sizing: border-box; margin: 0; }
+body { font-family: "Segoe UI", system-ui, sans-serif; height: 100vh; overflow: hidden; }
+h1 { font-weight: 600; font-size: 28px; }
+.muted { opacity: .65; }

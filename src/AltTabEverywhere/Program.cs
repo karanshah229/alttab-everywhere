@@ -71,7 +71,7 @@ internal static class Program
             if (demo)
             {
                 Log.Info("demo started");
-                controller.RunDemo(TimeSpan.FromSeconds(4), () => app.Shutdown());
+                controller.RunDemo(DemoOptions.Parse(args), () => app.Shutdown());
                 return;
             }
 

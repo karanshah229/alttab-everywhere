@@ -269,6 +269,25 @@ internal static class WindowEnumerator
     /// Which app a window belongs to, for stacking: the shell's app ID (keeps e.g. Chrome profiles
     /// apart), or the executable path when there is none (fallback window list).
     /// </summary>
+    /// <summary>When the window's process started (UTC), or null if it can't be read. For --demo-since.</summary>
+    public static DateTime? ProcessStartUtc(IntPtr hwnd)
+    {
+        Native.GetWindowThreadProcessId(hwnd, out uint pid);
+        IntPtr process = Native.OpenProcess(Native.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (process == IntPtr.Zero) return null;
+        try
+        {
+            return GetProcessTimes(process, out long created, out _, out _, out _) ? DateTime.FromFileTimeUtc(created) : null;
+        }
+        finally
+        {
+            Native.CloseHandle(process);
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
+
     /// <summary>sortOrder = stacking: each top-level window's place front to back (EnumWindows walks the z-order).</summary>
     public static Dictionary<IntPtr, int> StackingOrder()
     {

@@ -216,18 +216,36 @@ internal sealed partial class SwitcherController : IDisposable
     }
 
     /// <summary>--demo: open the switcher without the keyboard, log the overlay layout, then close.</summary>
-    public async void RunDemo(TimeSpan duration, Action done)
+    public async void RunDemo(DemoOptions options, Action done)
     {
+        if (options.Defaults)
+        {
+            _settingsOverride = new Settings().Normalized();
+            Theme.Rebuild(_settingsOverride);
+        }
+        _demoSince = options.Since;
         BeginSession(reverse: false, sendMaskKey: false);
         await WaitUntilShown();
         await Task.Delay(700);
         Log.Info($"demo: windows={_windows.Count} focus tiles={_items.Count} stacks={_items.Count(i => i.IsStack)} " +
                  $"selected={_selected} overlays shown={_plan.Count}/{_overlays.Count} columns={_columns}");
         foreach (var entry in _plan) Log.Info("demo: " + entry.Host.Query(w => w.DescribeForLog()));
-        await Task.Delay(duration);
+        if (options.TourMs > 0)
+        {
+            // Step once through every tile, back to where it started.
+            for (int step = 0; step < _items.Count && _active; step++)
+            {
+                await Task.Delay(options.TourMs);
+                Move(+1);
+            }
+        }
+        await Task.Delay(options.Duration);
         Cancel();
         done();
     }
+
+    /// <summary>--demo-since: only windows of processes started at or after this time (staged sample windows).</summary>
+    private DateTime? _demoSince;
 
     // ---- Session ----
 
@@ -251,6 +269,8 @@ internal sealed partial class SwitcherController : IDisposable
             Elevation: settings.AdminBadge,
             Hung: settings.NotRespondingBadge));
         _windows = WindowFilter.ApplyExclusions(windows, settings, WindowEnumerator.ProcessPathOf);
+        if (_demoSince is { } since)
+            _windows = _windows.Where(w => WindowEnumerator.ProcessStartUtc(w.Handle) is { } started && started >= since).ToList();
         if (settings.SessionWindows == WindowScope.CurrentApp) _windows = CurrentAppWindows(_windows);
         _recent = _windows;
         _windows = Sorted(_windows, settings.SortOrder);

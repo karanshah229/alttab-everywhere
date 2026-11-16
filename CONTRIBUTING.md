@@ -55,3 +55,13 @@ Use the bug report form. The most useful things to include:
 ## Licence
 
 By contributing you agree that your contribution is licensed under the [MIT License](LICENSE).
+
+## Screenshots
+
+The README's images are made from staged sample windows only, never from your own:
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools/screenshots/make-screenshots.ps1
+```
+
+It opens the pages in `tools/screenshots/samples` as app windows in a throwaway Edge profile, runs the switcher with `--demo --demo-defaults --demo-since <start time>` (default settings, and only windows of processes started after the script began), crops every image to the switcher itself, then closes the samples and deletes the profile. Build the Release configuration first, and keep the mouse still while it runs.

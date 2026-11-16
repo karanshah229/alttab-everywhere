@@ -2,6 +2,8 @@
 
 An Alt+Tab switcher for Windows 11 that appears on **every monitor at once**. Windows' own switcher only ever shows on the main display.
 
+![The switcher showing on two monitors at once: a laptop screen and an external monitor](docs/images/monitors.png)
+
 > Status: **early (v0.5)**. Works day to day. Settings can be changed in a settings window or in a JSON file.
 
 Three rules guide every feature:
@@ -41,7 +43,7 @@ The app runs in the notification area, with no main window. Right-click its tray
 
 If the app closes or crashes, Windows' own Alt+Tab takes over again straight away. After sleep, unlock or a display change, the app re-installs its keyboard hook automatically, in case Windows dropped it.
 
-To test without the keyboard, run it with `--demo`. It opens the switcher on every monitor for 4 seconds, writes the overlay layout to the log, and exits:
+To test without the keyboard, run it with `--demo`. It opens the switcher on every monitor for 4 seconds, writes the overlay layout to the log, and exits. Options: `--demo-seconds N` (how long it stays open), `--demo-defaults` (ignore settings.json and use the defaults), `--demo-since TIME` (only windows of processes started at or after an ISO 8601 UTC time; the screenshot script uses it to show its sample windows only) and `--demo-tour MS` (move the selection one tile every MS milliseconds):
 
 ```bash
 dotnet run --project src/AltTabEverywhere -- --demo
@@ -56,6 +58,8 @@ dotnet run --project tools/IconGen
 ```
 
 ## Keys
+
+![Moving the selection through the tiles, with live previews of each window](docs/images/tour.gif)
 
 | Keys | Action |
 |---|---|
@@ -310,7 +314,7 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability), 2 (find windows faster), 3 (looks and settings) and 4 (multi-monitor power tools) are done. Next up is **Phase 5: public release**.
+See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability), 2 (find windows faster), 3 (looks and settings) and 4 (multi-monitor power tools) are done. Phase 5 (public release) is done except code signing, which is postponed.
 
 ## License
 
