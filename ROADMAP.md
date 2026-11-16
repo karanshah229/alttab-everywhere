@@ -40,7 +40,7 @@ Inspiration comes from:
 - [x] Phase 1: start with Windows, hook recovery, close from the switcher, exclusions, desktops scope, per-monitor lists, MIT licence
 - [x] Phase 2: type to search, several shortcuts with their own filters (including a current-app switcher), number keys, Home/End/Page Up/Page Down, hover to select
 - [x] Phase 3: settings window, own icon, light/dark and accent colours, layout styles (previews, large icons, compact list, icons only), Store app icons, state badges (minimized, admin, not responding, other desktop), Peek (outline the selected window), "Show desktop" tile, accessibility (screen-reader names, high contrast, keyboard-only colour picker)
-- [x] Phase 4: move the selected window to this monitor (Shift+Enter or Ctrl+click), window actions (minimize, maximize, always on top, quit app; keys and a right-click menu), sort orders (recent, stacking, app, title, monitor), previews for minimized windows
+- [x] Phase 4: move the selected window to this monitor (Ctrl+Enter or Ctrl+click), window actions (minimize, maximize, always on top, quit app; keys and a right-click menu), sort orders (recent, stacking, app, title, monitor), previews for minimized windows
 
 ---
 

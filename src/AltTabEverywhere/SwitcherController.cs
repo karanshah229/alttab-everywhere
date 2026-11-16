@@ -951,7 +951,7 @@ internal sealed partial class SwitcherController : IDisposable
         switch (action)
         {
             case WindowAction.MoveHere:
-                MoveHereAndSwitch(hwnd, monitor);
+                MoveHereAndSwitch(hwnd, monitor, "key or menu");
                 break;
             case WindowAction.Maximize:
                 bool maximize = WindowActions.ShouldMaximize(hwnd); // decided before switching restores it
@@ -1017,15 +1017,18 @@ internal sealed partial class SwitcherController : IDisposable
             OnTileClicked(host, index); // Back, Show desktop: an ordinary click
             return;
         }
-        MoveHereAndSwitch(item.Shown.Handle, host.Monitor);
+        MoveHereAndSwitch(item.Shown.Handle, host.Monitor, "Ctrl+click");
     }
 
-    private void MoveHereAndSwitch(IntPtr hwnd, MonitorInfo? monitor)
+    private void MoveHereAndSwitch(IntPtr hwnd, MonitorInfo? monitor, string trigger)
     {
         try
         {
-            if (monitor is not null && !WindowMover.MoveTo(hwnd, monitor))
-                Log.Info("move here: the window couldn't be moved (it may be frozen or running as administrator)");
+            // Logged every time, so a window that turns up on another screen can be traced back here.
+            if (monitor is not null)
+                Log.Info(WindowMover.MoveTo(hwnd, monitor)
+                    ? $"move here ({trigger}): moved a window to {monitor.DeviceName}"
+                    : $"move here ({trigger}): the window couldn't be moved (it may be frozen or running as administrator)");
         }
         catch (Exception ex)
         {

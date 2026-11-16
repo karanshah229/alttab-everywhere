@@ -48,6 +48,7 @@ public class MoveHereTests
     [InlineData("Insert", 0x2D, false, false)]
     [InlineData("F2", 0x71, false, false)]
     [InlineData("Shift+M", 0x4D, true, false)]
+    [InlineData("Ctrl+Shift+Q", 0x51, true, true)]
     public void Move_here_keys_parse(string text, int vk, bool shift, bool ctrl)
     {
         Assert.True(SwitcherKey.TryParse(text, out var key));
@@ -70,7 +71,7 @@ public class MoveHereTests
     public void Defaults_are_Shift_Enter_and_Ctrl_click()
     {
         var settings = new Settings();
-        Assert.Equal("Shift+Enter", settings.MoveHereKey);
+        Assert.Equal("Ctrl+Enter", settings.MoveHereKey);
         Assert.True(settings.CtrlClickMovesHere);
         var loaded = SettingsStore.Deserialize("""{ "moveHereKey": "off", "ctrlClickMovesHere": false }""");
         Assert.Equal("off", loaded.MoveHereKey);
@@ -105,7 +106,7 @@ public class WindowActionTests
         Assert.Equal("Ctrl+Down", s.MinimizeKey);
         Assert.Equal("Ctrl+Up", s.MaximizeKey);
         Assert.Equal("Ctrl+T", s.AlwaysOnTopKey);
-        Assert.Equal("Shift+Delete", s.QuitAppKey);
+        Assert.Equal("Ctrl+Shift+Q", s.QuitAppKey);
         Assert.True(s.TileMenu);
         Assert.True(s.AlwaysOnTopBadge);
     }

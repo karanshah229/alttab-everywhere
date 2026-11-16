@@ -57,12 +57,12 @@ dotnet run --project tools/IconGen
 | Esc | Clear the search; with no search, close without switching |
 | Delete | Close the selected window. The app can still ask to save. The switcher stays open |
 | Click a tile | Switch to that window |
-| Shift+Enter (`moveHereKey`) | Switch to the selected window **and bring it to this monitor**: the one whose switcher the keyboard drives (under the mouse, by default). It keeps its size and relative place, and a maximized window is maximized there |
+| Ctrl+Enter (`moveHereKey`) | Switch to the selected window **and bring it to this monitor**: the one whose switcher the keyboard drives (under the mouse, by default). It keeps its size and relative place, and a maximized window is maximized there |
 | Ctrl+click a tile | Switch to that window and bring it to the monitor of the switcher you clicked. With a switcher on every screen, that pulls any window to where you are |
 | Ctrl+Down (`minimizeKey`) | Minimize the selected window, or restore it (without switching) if it's minimized. The switcher stays open |
 | Ctrl+Up (`maximizeKey`) | Switch to the selected window maximized, or restored if it already was |
 | Ctrl+T (`alwaysOnTopKey`) | Keep the selected window above other windows, or stop. The switcher stays open; a pin badge shows it |
-| Shift+Delete (`quitAppKey`) | Quit the selected window's app: every listed window of that app is asked to close (apps can still ask to save). The switcher stays open |
+| Ctrl+Shift+Q (`quitAppKey`) | Quit the selected window's app: every listed window of that app is asked to close (apps can still ask to save). The switcher stays open |
 | Right-click a tile | A menu with all of these actions and their keys: switch to, move to this monitor, minimize, maximize, always on top, close window, quit app |
 | Middle-click a tile, or click its × | Close that window |
 | Mouse wheel | Scroll, when there are more windows than fit |
@@ -118,12 +118,12 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | `peekBorderWidth` | `4` | Thickness of the outline, in device-independent pixels (scaled for each monitor). 1–20 |
 | `peekColor` | `""` | Outline colour as `"#RRGGBB"`; empty uses the accent colour |
 | `showDesktopTile` | `false` | A **Show desktop** tile after the windows, on every switcher. Picking it (Enter, a click, letting go of Alt, or its number) closes the switcher and shows the desktop, like Win+D, through the shell's `ToggleDesktop`; if the desktop already had focus it simply stays. A session never starts on it, Delete doesn't close it, and while searching it's listed only if "Show desktop" matches what you typed |
-| `moveHereKey` | `"Shift+Enter"` | While the switcher is open, this key switches to the selected window and moves it to the monitor whose switcher the keyboard drives. Same size (shrunk only if it doesn't fit) and the same relative place, like Win+Shift+Arrow; maximized windows are maximized there and minimized ones restored there. Accepts Enter, Insert, Space, F1–F24 or a letter, with Shift and/or Ctrl (a letter takes that letter away from the search). `"off"` turns it off. Frozen windows, and windows running as administrator unless this app is too, can't be moved; they're just switched to |
+| `moveHereKey` | `"Ctrl+Enter"` | While the switcher is open, this key switches to the selected window and moves it to the monitor whose switcher the keyboard drives. Same size (shrunk only if it doesn't fit) and the same relative place, like Win+Shift+Arrow; maximized windows are maximized there and minimized ones restored there. Accepts Enter, Insert, Space, F1–F24 or a letter, with Shift and/or Ctrl (a letter takes that letter away from the search). `"off"` turns it off. Not Shift+Enter by default: Shift is often still held after Shift+Alt+Tab, and a stray Enter would move the window. Frozen windows, and windows running as administrator unless this app is too, can't be moved; they're just switched to. Every move is logged with what triggered it |
 | `ctrlClickMovesHere` | `true` | Ctrl+click on a tile switches to that window and moves it to the monitor of the switcher you clicked |
 | `minimizeKey` | `"Ctrl+Down"` | While the switcher is open: minimize the selected window, or restore it without switching if it's minimized. The switcher stays open and the tile updates. Same key format as `moveHereKey`; `"off"` turns it off |
 | `maximizeKey` | `"Ctrl+Up"` | Switch to the selected window maximized, or restored if it already was maximized |
 | `alwaysOnTopKey` | `"Ctrl+T"` | Turn always-on-top on or off for the selected window; the switcher stays open, and above it. Windows running as administrator refuse unless this app is too |
-| `quitAppKey` | `"Shift+Delete"` | Ask every listed window of the selected window's app to close, like clicking each one's ×. Apps can still ask to save; nothing is force-killed |
+| `quitAppKey` | `"Ctrl+Shift+Q"` | Ask every listed window of the selected window's app to close, like clicking each one's ×. Apps can still ask to save; nothing is force-killed |
 | `tileMenu` | `true` | Right-clicking a tile opens a menu of the window actions, each showing its key. Built only when opened |
 | `excludedApps` | `[]` | Apps never listed. Each entry can be an executable name (`"notepad.exe"` or `"notepad"`), a full path, or a shell app ID (see `--list`) |
 | `excludedTitles` | `[]` | Windows never listed if their title contains any of these. Not case-sensitive |

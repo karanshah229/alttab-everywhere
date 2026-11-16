@@ -255,12 +255,12 @@ internal sealed class SettingsWindow : Window
         Toggle("Delete key closes the selected window", "", "deleteKeyCloses", _s.DeleteKeyCloses);
         Toggle("Middle-click closes a window", "", "middleClickCloses", _s.MiddleClickCloses);
         Toggle("Close button on hover", "", "showCloseButton", _s.ShowCloseButton);
-        SwitcherKeyRow("Move here key", "Switch and bring the window to this monitor.", "moveHereKey", _s.MoveHereKey, "Shift+Enter", "Ctrl+Enter", "Insert", "F2");
+        SwitcherKeyRow("Move here key", "Switch and bring the window to this monitor.", "moveHereKey", _s.MoveHereKey, "Ctrl+Enter", "Shift+Enter", "Insert", "F2");
         Toggle("Ctrl+click moves here", "Ctrl+click a tile to bring its window to that monitor.", "ctrlClickMovesHere", _s.CtrlClickMovesHere);
         SwitcherKeyRow("Minimize key", "Minimize (or restore) the selected window. Stays open.", "minimizeKey", _s.MinimizeKey, "Ctrl+Down", "F3");
         SwitcherKeyRow("Maximize key", "Switch to the window maximized (or restored).", "maximizeKey", _s.MaximizeKey, "Ctrl+Up", "F5");
         SwitcherKeyRow("Always on top key", "Keep the window above others, or stop.", "alwaysOnTopKey", _s.AlwaysOnTopKey, "Ctrl+T", "F6");
-        SwitcherKeyRow("Quit app key", "Close every window of the selected app.", "quitAppKey", _s.QuitAppKey, "Shift+Delete", "Ctrl+Q");
+        SwitcherKeyRow("Quit app key", "Close every window of the selected app.", "quitAppKey", _s.QuitAppKey, "Ctrl+Shift+Q", "Ctrl+Q");
         Toggle("Right-click menu on tiles", "All of these actions, with their keys.", "tileMenu", _s.TileMenu);
 
         Section("Appearance");

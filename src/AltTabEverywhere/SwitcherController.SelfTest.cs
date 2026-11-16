@@ -56,7 +56,7 @@ internal sealed partial class SwitcherController
                 _settingsOverride.MinimizeKey = "Ctrl+Down";
                 _settingsOverride.MaximizeKey = "Ctrl+Up";
                 _settingsOverride.AlwaysOnTopKey = "Ctrl+T";
-                _settingsOverride.QuitAppKey = "Shift+Delete";
+                _settingsOverride.QuitAppKey = "Ctrl+Shift+Q";
                 layoutTag = $"[{layout}] ";
                 // Repeat real windows to reach the target count; geometry is all that matters here.
                 // Every third tile is a two-window stack so badges and stack cycling are covered too.
@@ -574,6 +574,55 @@ internal sealed partial class SwitcherController
                 {
                     if (_active) End();
                     target.Close();
+                }
+            }
+
+            // Picking a minimized window (plain Alt+Tab, no move) restores it on the monitor it was
+            // minimized on, whichever monitor the switcher is driven from.
+            {
+                var probe = new Window
+                {
+                    Title = "AltTab Everywhere restore test", Width = 420, Height = 280, ShowActivated = false,
+                    ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual,
+                };
+                try
+                {
+                    probe.Show();
+                    IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(probe).Handle;
+                    foreach (var home in Monitors.GetAll())
+                    foreach (bool maximized in new[] { false, true })
+                    {
+                        string tag = $"restore ({home.DeviceName}{(maximized ? ", maximized" : "")})";
+                        Native.ShowWindow(hwnd, 9 /* SW_RESTORE */);
+                        Native.SetWindowPos(hwnd, IntPtr.Zero, home.WorkArea.Left + 60, home.WorkArea.Top + 60, 600, 400, Native.SWP_NOACTIVATE);
+                        if (maximized) Native.ShowWindow(hwnd, 3 /* SW_MAXIMIZE */);
+                        await Settle();
+                        Native.ShowWindow(hwnd, 7 /* SW_SHOWMINNOACTIVE */);
+                        await Settle();
+                        _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+                        _settingsOverride.ShowDesktopTile = false;
+                        var info = new WindowInfo(hwnd, "restore test", null, home.Handle, true, null);
+                        _items = new List<SwitcherItem> { new(new[] { real[0] }), new(new[] { info }) };
+                        _testItems = _items;
+                        _windows = _items.SelectMany(i => i.Windows).ToList();
+                        _active = true;
+                        _sessionId++;
+                        _selected = 1;
+                        PlanForTest(_items);
+                        await ShowUiAsync();
+                        await Settle();
+                        Commit();
+                        await Settle();
+                        IntPtr landed = Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST);
+                        checks += 2;
+                        if (Native.IsIconic(hwnd)) Fail($"{tag}: still minimized after picking it");
+                        if (landed != home.Handle) Fail($"{tag}: came back on another monitor");
+                    }
+                }
+                finally
+                {
+                    if (_active) End();
+                    probe.Close();
                 }
             }
 

@@ -186,9 +186,9 @@ internal sealed class Settings
 
     /// <summary>
     /// While the switcher is open, this key switches to the selected window and moves it to the
-    /// monitor whose switcher the keyboard drives. "Shift+Enter", "Insert", "F2"... or "off".
+    /// monitor whose switcher the keyboard drives. "Ctrl+Enter", "Insert", "F2"... or "off". (Not Shift+Enter by default: Shift is often still held after Shift+Alt+Tab.)
     /// </summary>
-    public string MoveHereKey { get; set; } = "Shift+Enter";
+    public string MoveHereKey { get; set; } = "Ctrl+Enter";
 
     /// <summary>Ctrl+click on a tile switches to that window and moves it to the monitor of the switcher you clicked.</summary>
     public bool CtrlClickMovesHere { get; set; } = true;
@@ -205,7 +205,7 @@ internal sealed class Settings
     public string AlwaysOnTopKey { get; set; } = "Ctrl+T";
 
     /// <summary>Ask every listed window of the selected window's app to close. The switcher stays open.</summary>
-    public string QuitAppKey { get; set; } = "Shift+Delete";
+    public string QuitAppKey { get; set; } = "Ctrl+Shift+Q";
 
     /// <summary>Right-clicking a tile opens a menu of these actions (and switch, move here, close).</summary>
     public bool TileMenu { get; set; } = true;
