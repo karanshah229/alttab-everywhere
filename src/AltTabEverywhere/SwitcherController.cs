@@ -1042,12 +1042,8 @@ internal sealed partial class SwitcherController : IDisposable
     /// (its exe for desktop apps, Windows' activation for Store apps). The tile only accepted the
     /// drop if its app can take files.
     /// </summary>
-    /// <summary>--selftest: drops are recorded here instead of opening anything.</summary>
-    private List<(OverlayHost Host, int Index, string[] Files)>? _dropCapture;
-
     private void OnTileFilesDropped(OverlayHost host, int index, string[] files)
     {
-        if (_dropCapture is not null) { _dropCapture.Add((host, index, files)); return; } // --selftest: record, don't open
         if (!_active || ItemAt(host, index) is not { HasWindow: true } item) return;
         var window = item.Shown;
         var plan = FileOpener.PlanFor(window);
