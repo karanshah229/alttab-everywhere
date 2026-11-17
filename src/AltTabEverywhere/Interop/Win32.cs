@@ -131,6 +131,35 @@ internal static unsafe class Win32
     [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hwnd, IntPtr dc);
     [DllImport("kernel32.dll")] public static extern IntPtr GetModuleHandleW(char* name);
 
+    // ---- Tooltips (comctl32) ----
+    public const uint TTS_ALWAYSTIP = 0x01, TTS_NOPREFIX = 0x02, TTF_SUBCLASS = 0x0010;
+    public const uint TTM_POP = 0x041C, TTM_ADDTOOLW = 0x0432, TTM_NEWTOOLRECTW = 0x0434, TTM_UPDATETIPTEXTW = 0x0439;
+    public const uint ICC_BAR_CLASSES = 0x0004;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TOOLINFOW
+    {
+        public uint cbSize;
+        public uint uFlags;
+        public IntPtr hwnd;
+        public nuint uId;
+        public RECT rect;
+        public IntPtr hinst;
+        public char* lpszText;
+        public nint lParam;
+        public IntPtr lpReserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INITCOMMONCONTROLSEX
+    {
+        public uint dwSize;
+        public uint dwICC;
+    }
+
+    [DllImport("comctl32.dll")] public static extern int InitCommonControlsEx(INITCOMMONCONTROLSEX* icc);
+    [DllImport("user32.dll")] public static extern nint SendMessageW(IntPtr hwnd, uint msg, nint wParam, nint lParam);
+
     // ---- gdi32 ----
     [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleDC(IntPtr dc);
     [DllImport("gdi32.dll")] public static extern int DeleteDC(IntPtr dc);

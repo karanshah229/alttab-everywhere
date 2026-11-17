@@ -16,7 +16,7 @@ namespace AltTabEverywhere;
 /// Nothing is kept between sessions but the window itself: tiles, fonts and previews are released
 /// when a session ends, and the frame is drawn into a buffer that exists only while painting.
 /// </summary>
-internal sealed unsafe class Win32SwitcherWindow : ISwitcherView
+internal sealed unsafe class Win32SwitcherWindow : ISwitcherView, SwitcherAutomation.IHost
 {
     private const double Pad = TileLayout.WindowPadding;
     private const double SearchBarHeight = SwitcherWindow.SearchBarHeight;
@@ -74,12 +74,15 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView
     private POINT _lastCursor;
 
     private readonly Dictionary<(int Size, int Weight, bool Glyph), IntPtr> _fonts = new();
+    private readonly SwitcherAutomation _automation;
 
-    private enum Part { None, Body, Close, Badge, ScrollThumb }
+    /// <summary>A tile's parts; Part.State + k is its k-th state badge.</summary>
+    private enum Part { None, Body, Close, Badge, ScrollThumb, State }
 
     public Win32SwitcherWindow(MonitorInfo monitor)
     {
         Monitor = monitor;
+        _automation = new SwitcherAutomation(this);
         EnsureProcessSetup();
         fixed (char* cls = ClassName)
         fixed (char* title = "AltTab Everywhere")
@@ -117,6 +120,13 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView
     // ---- Session ----
 
     public void ShowSession(IReadOnlyList<SwitcherItem> items, int selectedIndex, Settings settings, int columns, string query = "")
+    {
+        bool wasEmpty = _visible && _items.Count == 0;
+        ShowSessionCore(items, selectedIndex, settings, columns, query);
+        _automation.SessionChanged(wasEmpty);
+    }
+
+    private void ShowSessionCore(IReadOnlyList<SwitcherItem> items, int selectedIndex, Settings settings, int columns, string query)
     {
         ClearThumbnails();
         ReleaseFonts();
@@ -170,12 +180,14 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView
             InvalidateRect(Handle, null, 0);
             UpdateThumbnails();
         }
-        else if (old != index)
+        else if (old == index) return;
+        else
         {
             InvalidateTile(old);
             InvalidateTile(index);
             if (_layout == SwitcherLayout.IconsOnly) InvalidateDips(new RectD(Pad, _clientHeight - Pad - _captionHeight, _contentWidth, _captionHeight));
         }
+        if (old != index) _automation.SelectionChanged();
     }
 
     public void SetCloaked(bool cloaked)
@@ -190,6 +202,7 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView
         ClearThumbnails();
         ShowWindow(Handle, SW_HIDE);
         _visible = false;
+        DestroyTooltip();
         if (_dragging) ReleaseCapture();
         _dragging = false;
         // Nothing of the session is kept while idle: tiles (their icons and titles) and fonts go.
@@ -201,6 +214,7 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView
     public void Close()
     {
         EndSession();
+        _automation.Release();
         DestroyWindow(Handle);
         if (_self.IsAllocated) _self.Free();
     }
@@ -234,9 +248,44 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView
             ? TileMenuModel.For(w.Handle, s, out _).Select(e => $"{e.Text}|{e.Gesture}").ToList()
             : Array.Empty<string>();
 
-    public TileAccessibility AutomationOf(int index) =>
-        index < 0 || index >= _tiles.Count ? default
-            : new TileAccessibility(_tiles[index].Name, true, index + 1, _tiles.Count, _announce && index == _selected, _theme.SelectionThickness);
+    /// <summary>Read through the screen-reader provider itself, so the self-test checks what a screen reader gets.</summary>
+    public TileAccessibility AutomationOf(int index)
+    {
+        if (_automation.Tile(index) is not { } node) return default;
+        var name = node.GetPropertyValue(Uia.NameProperty);
+        string text = name.AsString() ?? "";
+        name.Clear();
+        return new TileAccessibility(text, node.GetPropertyValue(Uia.ControlTypeProperty).AsInt() == Uia.ListItemControlType,
+            node.GetPropertyValue(Uia.PositionInSetProperty).AsInt(), node.GetPropertyValue(Uia.SizeOfSetProperty).AsInt(),
+            node.GetPropertyValue(Uia.HasKeyboardFocusProperty).AsBool(), _theme.SelectionThickness);
+    }
+
+    // ---- What the screen-reader provider reads (SwitcherAutomation.IHost) ----
+
+    int SwitcherAutomation.IHost.TileCount => _tiles.Count;
+    string SwitcherAutomation.IHost.TileName(int index) => _tiles[index].Name;
+    int SwitcherAutomation.IHost.Selected => _selected;
+    bool SwitcherAutomation.IHost.Announce => _announce;
+    bool SwitcherAutomation.IHost.EmptyShown => _visible && _emptyHeight > 0;
+    RECT SwitcherAutomation.IHost.TileScreenRect(int index) => ToScreen(Px(ToClient(_tiles[index].Box)));
+    bool SwitcherAutomation.IHost.TileOffscreen(int index) =>
+        !_visible || _tiles[index].Box.Bottom - _scroll <= 0 || _tiles[index].Box.Top - _scroll >= _viewport;
+    RECT SwitcherAutomation.IHost.ListScreenRect => ToScreen(ViewportPx);
+    RECT SwitcherAutomation.IHost.EmptyScreenRect => ToScreen(Px(new RectD(Pad, Pad + _searchHeight + 16, _contentWidth, 13 * LineSpacing)));
+
+    int SwitcherAutomation.IHost.TileAtScreen(int x, int y)
+    {
+        var p = new POINT { X = x, Y = y };
+        ScreenToClient(Handle, &p);
+        var (index, _) = HitTest(p.X, p.Y);
+        return index;
+    }
+
+    private RECT ToScreen(RECT client)
+    {
+        Native.GetWindowRect(Handle, out var window); // no frame: the client area starts at the window's corner
+        return new RECT(client.Left + window.Left, client.Top + window.Top, client.Right + window.Left, client.Bottom + window.Top);
+    }
 
     public IReadOnlyList<string> StateBadgeLabels(int index) =>
         index < 0 || index >= _tiles.Count ? Array.Empty<string>() : _tiles[index].States.Select(s => s.Badge.Label).ToList();
@@ -837,9 +886,14 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView
 
     // ---- Mouse ----
 
+    /// <summary>
+    /// What is under a client point. Also leaves the part's bounds (relative to the grid) in
+    /// <see cref="_hitRect"/>, for its tooltip.
+    /// </summary>
     private (int Index, Part Part) HitTest(int xPx, int yPx)
     {
         double x = xPx / _scale, y = yPx / _scale;
+        _hitRect = default;
         if (IsScrolling)
         {
             double thumbLength = Math.Max(16, _viewport * _viewport / _extent);
@@ -852,14 +906,37 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView
         {
             var tile = _tiles[i];
             if (!tile.Box.Contains(gx, gy)) continue;
+            RectD states, badge = default, close = default;
             if (_layout == SwitcherLayout.IconsOnly)
-                return (i, tile.BadgeText is not null && IconsOnlyBadge(tile).Contains(gx, gy) ? Part.Badge : Part.Body);
-            var parts = LayoutHeader(tile, WouldShowClose(i)); // the mouse is over it, so its × shows
-            if (parts.Close.Width > 0 && parts.Close.Contains(gx, gy)) return (i, Part.Close);
-            if (parts.Badge.Width > 0 && parts.Badge.Contains(gx, gy)) return (i, Part.Badge);
+            {
+                double width = tile.States.Sum(s => s.Width);
+                states = new RectD(tile.ThumbBox.Right - width, tile.ThumbBox.Y, width, 12 * LineSpacing);
+                if (tile.BadgeText is not null) badge = IconsOnlyBadge(tile);
+            }
+            else
+            {
+                var parts = LayoutHeader(tile, WouldShowClose(i)); // the mouse is over it, so its × shows
+                (states, badge, close) = (parts.States, parts.Badge, parts.Close);
+            }
+            if (close.Width > 0 && close.Contains(gx, gy)) return (i, Hit(Part.Close, close));
+            if (badge.Width > 0 && badge.Contains(gx, gy)) return (i, Hit(Part.Badge, badge));
+            if (states.Width > 0 && states.Contains(gx, gy))
+            {
+                double left = states.X;
+                for (int k = 0; k < tile.States.Count; left += tile.States[k].Width, k++)
+                    if (gx < left + tile.States[k].Width) return (i, Hit(Part.State + k, new RectD(left, states.Y, tile.States[k].Width, states.Height)));
+            }
             return (i, Part.Body);
         }
         return (-1, Part.None);
+    }
+
+    private RectD _hitRect;
+
+    private Part Hit(Part part, RectD bounds)
+    {
+        _hitRect = bounds;
+        return part;
     }
 
     /// <summary>The × appears as soon as the mouse is over the tile.</summary>
@@ -900,6 +977,70 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView
         _hoverPart = part;
         InvalidateTile(old);
         if (index != old) InvalidateTile(index);
+        UpdateTooltip(index, part, _hitRect);
+    }
+
+    // ---- Tooltips: the stack badge, the × and the state badges explain themselves, as in SwitcherWindow ----
+
+    private IntPtr _tooltip; // created on the first hover over such a part; destroyed when the session ends
+
+    private string? TooltipText(int index, Part part) => part switch
+    {
+        _ when index < 0 || index >= _tiles.Count => null,
+        Part.Close => "Close window",
+        Part.Badge => "Show its windows",
+        >= Part.State when (int)(part - Part.State) < _tiles[index].States.Count => _tiles[index].States[part - Part.State].Badge.Label,
+        _ => null,
+    };
+
+    /// <summary>One tool, moved onto whichever part the mouse is over; the tooltip control handles the delays.</summary>
+    private void UpdateTooltip(int index, Part part, RectD bounds)
+    {
+        string? text = TooltipText(index, part);
+        if (text is null && _tooltip == IntPtr.Zero) return;
+        if (_tooltip == IntPtr.Zero && !CreateTooltip()) return;
+        var tool = new TOOLINFOW { cbSize = (uint)sizeof(TOOLINFOW), uFlags = TTF_SUBCLASS, hwnd = Handle, uId = 1 };
+        SendMessageW(_tooltip, TTM_POP, 0, 0);
+        tool.rect = text is null ? default : Px(ToClient(bounds));
+        SendMessageW(_tooltip, TTM_NEWTOOLRECTW, 0, (nint)(&tool));
+        fixed (char* p = text ?? "")
+        {
+            tool.lpszText = p;
+            SendMessageW(_tooltip, TTM_UPDATETIPTEXTW, 0, (nint)(&tool));
+        }
+    }
+
+    private bool CreateTooltip()
+    {
+        EnsureCommonControls();
+        fixed (char* cls = "tooltips_class32")
+            _tooltip = CreateWindowExW(WS_EX_TOPMOST, cls, null, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                0, 0, 0, 0, Handle, IntPtr.Zero, GetModuleHandleW(null), IntPtr.Zero);
+        if (_tooltip == IntPtr.Zero) return false;
+        var tool = new TOOLINFOW { cbSize = (uint)sizeof(TOOLINFOW), uFlags = TTF_SUBCLASS, hwnd = Handle, uId = 1 };
+        fixed (char* empty = "")
+        {
+            tool.lpszText = empty;
+            SendMessageW(_tooltip, TTM_ADDTOOLW, 0, (nint)(&tool));
+        }
+        return true;
+    }
+
+    private void DestroyTooltip()
+    {
+        if (_tooltip == IntPtr.Zero) return;
+        DestroyWindow(_tooltip);
+        _tooltip = IntPtr.Zero;
+    }
+
+    private static bool _commonControls;
+
+    private static void EnsureCommonControls()
+    {
+        if (_commonControls) return;
+        var icc = new INITCOMMONCONTROLSEX { dwSize = (uint)sizeof(INITCOMMONCONTROLSEX), dwICC = ICC_BAR_CLASSES };
+        InitCommonControlsEx(&icc);
+        _commonControls = true;
     }
 
     private void OnScrolled()
@@ -1044,6 +1185,9 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView
                 return IntPtr.Zero;
             case WM_CLOSE:
                 return IntPtr.Zero; // Alt+F4 while it has focus: only the app ends a session
+            case WM_GETOBJECT:
+                if (unchecked((int)lParam.ToInt64()) == Uia.RootObjectId) return _automation.OnGetObject(wParam, lParam);
+                break;
             case WM_DPICHANGED:
                 if (_visible) ShowSession(_items, _selected, _settings, _columns, _query);
                 return IntPtr.Zero;

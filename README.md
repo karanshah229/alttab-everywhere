@@ -222,7 +222,7 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 |---|---|---|
 | `startWithWindows` | `false` | Start when you sign in to Windows. Same as the tray toggle |
 | `checkForUpdates` | `false` | Ask GitHub for a newer release, at most once a day, at startup (or when you turn this on). If there is one, the tray menu gets a **Download version X…** item and a notification appears; both open the release page. Nothing is downloaded or installed automatically. The request carries only the app's name and version, and this is the only time the app ever goes online. Off by default |
-| `experimentalWin32Switcher` | `false` | Experimental: draws the switcher with plain Win32 (GDI and DWM) instead of WPF, the first step to a much lighter app (see the roadmap). Layout, previews, mouse actions and the right-click menu work as in the normal switcher; screen-reader support and tooltips are still being added. Takes effect from the next Alt+Tab |
+| `experimentalWin32Switcher` | `false` | Experimental: draws the switcher with plain Win32 (GDI and DWM) instead of WPF, the first step to a much lighter app (see the roadmap). Layout, previews, mouse actions, the right-click menu, tooltips and screen readers work as in the normal switcher (screen readers see the same list of tiles, through a UI Automation provider that only exists once one asks). Takes effect from the next Alt+Tab |
 
 Example:
 
