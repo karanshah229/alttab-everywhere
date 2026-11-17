@@ -19,14 +19,51 @@ public class AppIconsTests
     [DesktopFact]
     public void A_built_in_Store_app_gets_a_sharp_icon_with_transparency()
     {
-        var icon = AppIcons.ForAppId("windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel")
-            as System.Windows.Media.Imaging.BitmapSource;
+        var icon = AppIcons.ForAppId("windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel");
         Assert.NotNull(icon);
-        Assert.True(icon!.PixelWidth >= 48, $"icon is only {icon.PixelWidth} px");
-        Assert.True(icon.IsFrozen); // shared with the overlays' threads
+        Assert.True(icon!.Width >= 48, $"icon is only {icon.Width} px");
+        AssertPremultipliedWithTransparency(icon);
     }
 
     [Fact]
     public void An_unknown_app_id_gives_no_icon_instead_of_throwing() =>
         Assert.Null(AppIcons.ForAppId("NoSuchPackage_0000000000000!App"));
+
+    [Fact]
+    public void An_exe_gives_its_icon_as_premultiplied_pixels()
+    {
+        var icon = AppIcon.ForFile(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"));
+        Assert.NotNull(icon);
+        Assert.Equal(icon!.Width * icon.Height * 4, icon.Pixels.Length);
+        AssertPremultipliedWithTransparency(icon);
+    }
+
+    [Fact]
+    public void A_missing_file_gives_no_icon() =>
+        Assert.Null(AppIcon.ForFile(@"C:\no\such\file.exe"));
+
+    [Fact]
+    public void The_wpf_image_is_converted_once_and_frozen_for_the_overlay_threads()
+    {
+        var icon = new AppIcon(2, 1, new byte[] { 10, 20, 30, 40, 0, 0, 0, 0 });
+        var image = WpfIcons.ToImage(icon);
+        Assert.NotNull(image);
+        Assert.True(image!.IsFrozen);
+        Assert.Same(image, WpfIcons.ToImage(icon));
+        Assert.Null(WpfIcons.ToImage(null));
+    }
+
+    private static void AssertPremultipliedWithTransparency(AppIcon icon)
+    {
+        bool transparent = false, opaque = false;
+        for (int i = 0; i < icon.Pixels.Length; i += 4)
+        {
+            byte a = icon.Pixels[i + 3];
+            Assert.True(icon.Pixels[i] <= a && icon.Pixels[i + 1] <= a && icon.Pixels[i + 2] <= a, $"pixel {i / 4} is not premultiplied");
+            transparent |= a == 0;
+            opaque |= a == 255;
+        }
+        Assert.True(transparent, "no transparent pixels");
+        Assert.True(opaque, "no opaque pixels");
+    }
 }

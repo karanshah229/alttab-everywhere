@@ -2,10 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Windows;
-using System.Windows.Interop;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using AltTabEverywhere.Interop;
 
 namespace AltTabEverywhere;
@@ -15,7 +11,7 @@ namespace AltTabEverywhere;
 /// <param name="IsElevated">Runs as administrator (only checked when the admin badge is on).</param>
 /// <param name="IsHung">Not responding (only checked when that badge is on).</param>
 /// <param name="IsTopmost">Kept above other windows (always on top).</param>
-internal sealed record WindowInfo(IntPtr Handle, string Title, ImageSource? Icon, IntPtr Monitor, bool IsMinimized,
+internal sealed record WindowInfo(IntPtr Handle, string Title, AppIcon? Icon, IntPtr Monitor, bool IsMinimized,
     string? AppUserModelId, bool OnOtherDesktop = false, bool IsElevated = false, bool IsHung = false, bool IsTopmost = false);
 
 /// <summary>What <see cref="WindowEnumerator.GetSwitchableWindows"/> lists and finds out about each window.</summary>
@@ -29,8 +25,8 @@ internal sealed record WindowQuery(bool IncludeOtherDesktops = false, bool Packa
 /// <summary>Lists the windows that belong in Alt+Tab, in most-recently-used order.</summary>
 internal static class WindowEnumerator
 {
-    private static readonly Dictionary<IntPtr, ImageSource> HIconCache = new();
-    private static readonly Dictionary<string, ImageSource?> ExeIconCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<IntPtr, AppIcon> HIconCache = new();
+    private static readonly Dictionary<string, AppIcon?> ExeIconCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ShellViews Shell = new();
     private static string? _lastSource;
     private static WindowQuery _query = new();
@@ -206,7 +202,7 @@ internal static class WindowEnumerator
         return elevated;
     }
 
-    private static ImageSource? GetIcon(IntPtr hwnd)
+    private static AppIcon? GetIcon(IntPtr hwnd)
     {
         IntPtr hIcon = IntPtr.Zero;
         foreach (int type in new[] { Native.ICON_BIG, Native.ICON_SMALL2, Native.ICON_SMALL })
@@ -223,46 +219,27 @@ internal static class WindowEnumerator
         if (hIcon != IntPtr.Zero)
         {
             if (HIconCache.TryGetValue(hIcon, out var cached)) return cached;
-            try
+            var icon = AppIcon.FromHIcon(hIcon);
+            if (icon is not null)
             {
-                var source = Imaging.CreateBitmapSourceFromHIcon(hIcon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                source.Freeze();
-                HIconCache[hIcon] = source;
-                return source;
+                HIconCache[hIcon] = icon;
+                return icon;
             }
-            catch
-            {
-                // Fall through to the exe icon.
-            }
+            // Unreadable (e.g. monochrome): fall through to the exe icon.
         }
 
         return GetExeIcon(hwnd);
     }
 
-    private static ImageSource? GetExeIcon(IntPtr hwnd)
+    private static AppIcon? GetExeIcon(IntPtr hwnd)
     {
         string? path = GetProcessPath(hwnd);
         if (path is null) return null;
         if (ExeIconCache.TryGetValue(path, out var cached)) return cached;
 
-        ImageSource? source = null;
-        try
-        {
-            using var icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
-            if (icon is not null)
-            {
-                var bitmap = Imaging.CreateBitmapSourceFromHIcon(icon.Handle, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                bitmap.Freeze();
-                source = bitmap;
-            }
-        }
-        catch
-        {
-            // Protected processes etc. — no icon.
-        }
-
-        ExeIconCache[path] = source;
-        return source;
+        var icon = AppIcon.ForFile(path); // null for protected processes etc.
+        ExeIconCache[path] = icon;
+        return icon;
     }
 
     /// <summary>

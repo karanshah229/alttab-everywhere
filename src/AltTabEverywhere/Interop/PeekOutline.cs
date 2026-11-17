@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Windows.Media;
 
 namespace AltTabEverywhere.Interop;
 
@@ -18,7 +17,7 @@ internal sealed class PeekOutline : IDisposable
 
     private IntPtr _hwnd;
     private IntPtr _brush;
-    private Color _color;
+    private Argb _color;
 
     /// <summary>The window the outline is on, or zero while hidden.</summary>
     public IntPtr Target { get; private set; }
@@ -30,7 +29,7 @@ internal sealed class PeekOutline : IDisposable
     /// Outlines <paramref name="target"/>, below the switcher windows in <paramref name="keepBelow"/>.
     /// Hides it (and returns false) if the window has nowhere visible to outline.
     /// </summary>
-    public bool Show(IntPtr target, Color color, double widthDip, IReadOnlyCollection<IntPtr> keepBelow)
+    public bool Show(IntPtr target, Argb color, double widthDip, IReadOnlyCollection<IntPtr> keepBelow)
     {
         if (target == IntPtr.Zero || Native.IsIconic(target) || !Native.IsWindowVisible(target) ||
             DwmGetWindowAttribute(target, DWMWA_EXTENDED_FRAME_BOUNDS, out RECT frame, Marshal.SizeOf<RECT>()) != 0 ||
@@ -113,11 +112,11 @@ internal sealed class PeekOutline : IDisposable
         Native.DwmSetWindowAttribute(_hwnd, DWMWA_EXCLUDED_FROM_PEEK, ref excluded, sizeof(int));
     }
 
-    private void SetColor(Color color)
+    private void SetColor(Argb color)
     {
         if (_brush != IntPtr.Zero && color == _color) return;
         IntPtr old = _brush;
-        _brush = CreateSolidBrush((uint)(color.R | (color.G << 8) | (color.B << 16)));
+        _brush = CreateSolidBrush(color.ToColorRef());
         _color = color;
         SetClassLongPtr(_hwnd, GCLP_HBRBACKGROUND, _brush);
         if (old != IntPtr.Zero) DeleteObject(old);

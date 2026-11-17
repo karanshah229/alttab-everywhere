@@ -1,16 +1,15 @@
-using System.Windows.Media;
 
 namespace AltTabEverywhere.Tests;
 
 public class AccessibilityTests
 {
-    private static readonly SystemColorSet BlackContrast = new(Colors.Black, Colors.White, Color.FromRgb(0x1A, 0xEB, 0xFF), Colors.Black);
-    private static readonly SystemColorSet WhiteContrast = new(Colors.White, Colors.Black, Color.FromRgb(0x37, 0x00, 0x6E), Colors.White);
+    private static readonly SystemColorSet BlackContrast = new(Argb.Black, Argb.White, Argb.FromRgb(0x1A, 0xEB, 0xFF), Argb.Black);
+    private static readonly SystemColorSet WhiteContrast = new(Argb.White, Argb.Black, Argb.FromRgb(0x37, 0x00, 0x6E), Argb.White);
 
     private static WindowInfo Window(string title, bool hung = false, bool minimized = false) =>
         new(IntPtr.Zero, title, null, IntPtr.Zero, minimized, null, IsHung: hung);
 
-    private static Color ColorOf(Brush brush) => ((SolidColorBrush)brush).Color;
+    private static Argb ColorOf(Argb color) => color;
 
     [Fact]
     public void A_contrast_theme_uses_only_Windows_colours_solidly()
@@ -18,9 +17,9 @@ public class AccessibilityTests
         var theme = Theme.Create(new Settings(), systemLight: false, null, BlackContrast);
         Assert.True(theme.IsHighContrast);
         Assert.True(theme.IsDark);
-        Assert.Equal(Colors.Black, ColorOf(theme.Background));
-        Assert.Equal(Colors.White, ColorOf(theme.Text));
-        Assert.Equal(Colors.White, ColorOf(theme.DimText)); // no see-through text in a contrast theme
+        Assert.Equal(Argb.Black, ColorOf(theme.Background));
+        Assert.Equal(Argb.White, ColorOf(theme.Text));
+        Assert.Equal(Argb.White, ColorOf(theme.DimText)); // no see-through text in a contrast theme
         Assert.Equal(BlackContrast.Highlight, ColorOf(theme.SelectedBorder));
         Assert.Equal(BlackContrast.Highlight, theme.AccentColor); // peek outline too
         Assert.Equal(3, theme.SelectionThickness);
@@ -31,8 +30,8 @@ public class AccessibilityTests
     {
         var settings = new Settings { BackgroundColor = "#FF0000", TextColor = "#00FF00", AccentColor = "#0000FF", Theme = AppTheme.Dark };
         var theme = Theme.Create(settings, systemLight: false, null, WhiteContrast);
-        Assert.Equal(Colors.White, ColorOf(theme.Background));
-        Assert.Equal(Colors.Black, ColorOf(theme.Text));
+        Assert.Equal(Argb.White, ColorOf(theme.Background));
+        Assert.Equal(Argb.Black, ColorOf(theme.Text));
         Assert.Equal(WhiteContrast.Highlight, ColorOf(theme.SelectedBorder));
         Assert.False(theme.IsDark);
     }

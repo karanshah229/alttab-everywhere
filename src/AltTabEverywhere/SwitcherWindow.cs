@@ -65,7 +65,7 @@ internal sealed class SwitcherWindow : Window
     private readonly TextBlock _searchIcon;
 
     /// <summary>The colours this window was last drawn with; tiles are built per session from it.</summary>
-    private Theme _theme = Theme.Current;
+    private WpfTheme _theme = WpfTheme.For(Theme.Current);
 
     public MonitorInfo Monitor { get; }
     public IntPtr Handle { get; }
@@ -706,8 +706,9 @@ internal sealed class SwitcherWindow : Window
         }
         var window = item.Shown;
         tile.Window = window;
-        tile.Icon.Source = window.Icon;
-        tile.Placeholder.Source = window.Icon;
+        var icon = WpfIcons.ToImage(window.Icon);
+        tile.Icon.Source = icon;
+        tile.Placeholder.Source = icon;
         tile.Title.Text = window.Title;
         tile.Badge.Visibility = item.IsStack ? Visibility.Visible : Visibility.Collapsed;
         tile.BadgeText.Text = $"×{item.Count}";
@@ -858,10 +859,10 @@ internal sealed class SwitcherWindow : Window
     /// Recolours the parts of the window that outlive a session (tiles are rebuilt each session).
     /// Does nothing unless the theme changed since this window was last drawn.
     /// </summary>
-    private void ApplyTheme(Theme theme)
+    private void ApplyTheme(Theme source)
     {
-        if (ReferenceEquals(theme, _theme)) return;
-        _theme = theme;
+        if (ReferenceEquals(source, _theme.Source)) return;
+        var theme = _theme = WpfTheme.For(source);
         Background = theme.Background;
         _searchBar.Background = theme.SearchBackground;
         _searchText.Foreground = theme.Text;
@@ -874,7 +875,7 @@ internal sealed class SwitcherWindow : Window
     }
 
     // Parsed per window: each overlay has its own UI thread, and a Style can't be shared across threads.
-    private static Style ScrollBarStyle(Theme theme) =>
+    private static Style ScrollBarStyle(WpfTheme theme) =>
         (Style)System.Windows.Markup.XamlReader.Parse(ScrollBarStyleXaml.Replace("{THUMB}", theme.ScrollThumb));
 
     private sealed class Tile(Border root, Border thumbHost, Image icon, TextBlock title, Image placeholder,

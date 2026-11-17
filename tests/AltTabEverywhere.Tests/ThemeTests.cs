@@ -1,14 +1,13 @@
-using System.Windows.Media;
 using AltTabEverywhere;
 
 namespace AltTabEverywhere.Tests;
 
 public class ThemeTests
 {
-    private static readonly Color[] Palette =
+    private static readonly Argb[] Palette =
     {
-        Color.FromRgb(1, 1, 1), Color.FromRgb(2, 2, 2), Color.FromRgb(3, 3, 3), Color.FromRgb(4, 4, 4),
-        Color.FromRgb(5, 5, 5), Color.FromRgb(6, 6, 6), Color.FromRgb(7, 7, 7), Color.FromRgb(8, 8, 8),
+        Argb.FromRgb(1, 1, 1), Argb.FromRgb(2, 2, 2), Argb.FromRgb(3, 3, 3), Argb.FromRgb(4, 4, 4),
+        Argb.FromRgb(5, 5, 5), Argb.FromRgb(6, 6, 6), Argb.FromRgb(7, 7, 7), Argb.FromRgb(8, 8, 8),
     };
 
     [Theory]
@@ -18,7 +17,7 @@ public class ThemeTests
     public void Parses_hex_colours(string text, int a, int r, int g, int b)
     {
         Assert.True(Theme.TryParseColor(text, out var c));
-        Assert.Equal(Color.FromArgb((byte)a, (byte)r, (byte)g, (byte)b), c);
+        Assert.Equal(new Argb((byte)a, (byte)r, (byte)g, (byte)b), c);
     }
 
     [Theory]
@@ -49,9 +48,9 @@ public class ThemeTests
     {
         Assert.Equal(Palette[1], Theme.AccentFor("system", dark: true, Palette));  // Light2
         Assert.Equal(Palette[4], Theme.AccentFor("system", dark: false, Palette)); // Dark1
-        Assert.Equal(Color.FromRgb(0xFF, 0, 0), Theme.AccentFor("#FF0000", dark: true, Palette));
+        Assert.Equal(Argb.FromRgb(0xFF, 0, 0), Theme.AccentFor("#FF0000", dark: true, Palette));
         // No palette in the registry: Windows' default blue.
-        Assert.Equal(Color.FromRgb(0x00, 0x78, 0xD4), Theme.AccentFor("system", dark: false, null));
+        Assert.Equal(Argb.FromRgb(0x00, 0x78, 0xD4), Theme.AccentFor("system", dark: false, null));
     }
 
     [Fact]
@@ -59,13 +58,13 @@ public class ThemeTests
     {
         var theme = Theme.Create(new Settings { Theme = AppTheme.Dark, BackgroundColor = "#FFFFFF" }, false, Palette);
         Assert.False(theme.IsDark);
-        Assert.Equal(Color.FromRgb(0x1A, 0x1A, 0x1A), ((SolidColorBrush)theme.Text).Color);
+        Assert.Equal(Argb.FromRgb(0x1A, 0x1A, 0x1A), theme.Text);
     }
 
     [Fact]
     public void Brushes_are_frozen_so_every_overlay_thread_can_use_them()
     {
-        var theme = Theme.Create(new Settings(), false, Palette);
+        var theme = WpfTheme.For(Theme.Create(new Settings(), false, Palette));
         Assert.True(theme.Background.IsFrozen);
         Assert.True(theme.SelectedBorder.IsFrozen);
         Assert.True(theme.DimText.IsFrozen);

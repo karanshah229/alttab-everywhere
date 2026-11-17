@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
 namespace AltTabEverywhere.Interop;
 
@@ -18,7 +16,7 @@ internal static class AppIcons
     private const int Size = 96;
     private const int MaxCached = 256;
 
-    private static readonly Dictionary<string, ImageSource?> Cache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, AppIcon?> Cache = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A packaged app's ID has the form "PackageFamilyName!AppId".</summary>
     public static bool IsPackagedAppId(string? appUserModelId) =>
@@ -40,12 +38,12 @@ internal static class AppIcons
     private static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder name, int capacity);
 
     /// <summary>The app's icon, or null if the shell doesn't know it (the caller falls back to the window's).</summary>
-    public static ImageSource? ForAppId(string appUserModelId)
+    public static AppIcon? ForAppId(string appUserModelId)
     {
         if (Cache.TryGetValue(appUserModelId, out var cached)) return cached;
         if (Cache.Count >= MaxCached) Cache.Clear();
 
-        ImageSource? icon = null;
+        AppIcon? icon = null;
         IntPtr bitmap = IntPtr.Zero;
         try
         {
@@ -54,7 +52,7 @@ internal static class AppIcons
             SHCreateItemInKnownFolder(ref appsFolder, 0, appUserModelId, ref iid, out object item);
             var factory = (IShellItemImageFactory)item;
             if (factory.GetImage(new SIZE { cx = Size, cy = Size }, SIIGBF_ICONONLY, out bitmap) == 0)
-                icon = ToImage(bitmap);
+                icon = AppIcon.FromBitmap(bitmap);
             Marshal.ReleaseComObject(item);
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException or ArgumentException)
@@ -68,39 +66,6 @@ internal static class AppIcons
 
         Cache[appUserModelId] = icon;
         return icon;
-    }
-
-    /// <summary>Copies a 32-bit HBITMAP (premultiplied alpha, as the shell draws icons) into a frozen image.</summary>
-    private static ImageSource? ToImage(IntPtr bitmap)
-    {
-        if (GetObject(bitmap, Marshal.SizeOf<BITMAP>(), out BITMAP info) == 0 || info.bmWidth <= 0 || info.bmHeight <= 0) return null;
-        int width = info.bmWidth, height = info.bmHeight;
-        var header = new BITMAPINFOHEADER
-        {
-            biSize = Marshal.SizeOf<BITMAPINFOHEADER>(),
-            biWidth = width,
-            biHeight = -height, // top-down rows
-            biPlanes = 1,
-            biBitCount = 32,
-        };
-        var pixels = new byte[width * height * 4];
-        IntPtr screen = GetDC(IntPtr.Zero);
-        try
-        {
-            if (GetDIBits(screen, bitmap, 0, (uint)height, pixels, ref header, 0) == 0) return null;
-        }
-        finally
-        {
-            ReleaseDC(IntPtr.Zero, screen);
-        }
-
-        // An icon without an alpha channel comes back fully transparent: show it opaque instead.
-        bool hasAlpha = false;
-        for (int i = 3; i < pixels.Length && !hasAlpha; i += 4) hasAlpha = pixels[i] != 0;
-        var format = hasAlpha ? PixelFormats.Pbgra32 : PixelFormats.Bgr32;
-        var image = BitmapSource.Create(width, height, 96, 96, format, null, pixels, width * 4);
-        image.Freeze(); // shared with the overlays' threads
-        return image;
     }
 
     // ---- Interop ----
@@ -122,50 +87,10 @@ internal static class AppIcons
         public int cy;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct BITMAP
-    {
-        public int bmType;
-        public int bmWidth;
-        public int bmHeight;
-        public int bmWidthBytes;
-        public ushort bmPlanes;
-        public ushort bmBitsPixel;
-        public IntPtr bmBits;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct BITMAPINFOHEADER
-    {
-        public int biSize;
-        public int biWidth;
-        public int biHeight;
-        public short biPlanes;
-        public short biBitCount;
-        public int biCompression;
-        public int biSizeImage;
-        public int biXPelsPerMeter;
-        public int biYPelsPerMeter;
-        public int biClrUsed;
-        public int biClrImportant;
-    }
-
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
     private static extern void SHCreateItemInKnownFolder(ref Guid folderId, uint flags, string item, ref Guid iid,
         [MarshalAs(UnmanagedType.Interface)] out object result);
 
     [DllImport("gdi32.dll")]
-    private static extern int GetObject(IntPtr handle, int size, out BITMAP bitmap);
-
-    [DllImport("gdi32.dll")]
-    private static extern int GetDIBits(IntPtr dc, IntPtr bitmap, uint start, uint lines, [Out] byte[] bits, ref BITMAPINFOHEADER info, uint usage);
-
-    [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr handle);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetDC(IntPtr window);
-
-    [DllImport("user32.dll")]
-    private static extern int ReleaseDC(IntPtr window, IntPtr dc);
 }

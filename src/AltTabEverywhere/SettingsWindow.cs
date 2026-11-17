@@ -132,8 +132,9 @@ internal sealed class SettingsWindow : Window
         var mode = theme.IsDark ? System.Windows.ThemeMode.Dark : System.Windows.ThemeMode.Light;
         if (ThemeMode != mode) ThemeMode = mode;
 #pragma warning restore WPF0001
-        Background = theme.Background;
-        Foreground = theme.Text;
+        var wpf = WpfTheme.For(theme);
+        Background = wpf.Background;
+        Foreground = wpf.Text;
 
         // A custom accent on the checkboxes. The Fluent controls read these per-control keys (the general accent
         // brushes, and the text box focus line, are resolved inside the theme and stay Windows' accent).
@@ -144,7 +145,7 @@ internal sealed class SettingsWindow : Window
         foreach (var key in fill.Concat(hover).Concat(pressed).Concat(onAccent)) Resources.Remove(key);
         if (Theme.TryParseColor(_s.AccentColor, out var accent))
         {
-            foreach (var key in fill) Resources[key] = Frozen(accent);
+            foreach (var key in fill) Resources[key] = Frozen(WpfTheme.ToColor(accent));
             foreach (var key in hover) Resources[key] = Frozen(Color.FromArgb(0xE6, accent.R, accent.G, accent.B));
             foreach (var key in pressed) Resources[key] = Frozen(Color.FromArgb(0xCC, accent.R, accent.G, accent.B));
             foreach (var key in onAccent) Resources[key] = Frozen(Theme.Luminance(accent) > 0.6 ? Colors.Black : Colors.White);
@@ -270,8 +271,8 @@ internal sealed class SettingsWindow : Window
             (AppTheme.Dark, "Dark"),
             (AppTheme.Light, "Light"));
         Colour("Accent colour", "Selection border. Empty: Windows' accent.", "accentColor", _s.AccentColor, "system", t => t.AccentColor);
-        Colour("Background colour", "Empty: theme default.", "backgroundColor", _s.BackgroundColor, "", t => ((SolidColorBrush)t.Background).Color);
-        Colour("Text colour", "Empty: theme default.", "textColor", _s.TextColor, "", t => ((SolidColorBrush)t.Text).Color);
+        Colour("Background colour", "Empty: theme default.", "backgroundColor", _s.BackgroundColor, "", t => t.Background);
+        Colour("Text colour", "Empty: theme default.", "textColor", _s.TextColor, "", t => t.Text);
         Choice("High contrast", "Windows' contrast-theme colours override the colours above.", "highContrast", _s.HighContrast,
             (HighContrastMode.System, "With a Windows contrast theme"),
             (HighContrastMode.On, "Always"),
@@ -479,7 +480,7 @@ internal sealed class SettingsWindow : Window
     /// A colour: a swatch that opens a palette, and a hex box. Empty means "use the theme"
     /// (<paramref name="emptyValue"/> is written); the swatch then shows the theme's colour.
     /// </summary>
-    private void Colour(string label, string description, string key, string value, string emptyValue, Func<Theme, Color> themeColour)
+    private void Colour(string label, string description, string key, string value, string emptyValue, Func<Theme, Argb> themeColour)
     {
         Track(key);
         string Shown(string v) => v.Equals("system", StringComparison.OrdinalIgnoreCase) ? "" : v;
@@ -491,8 +492,8 @@ internal sealed class SettingsWindow : Window
         var pick = new Button { Content = swatch, Padding = new Thickness(5), MinWidth = 0, MinHeight = 0, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Pick a colour" };
         AutomationName(pick, $"Pick {label.ToLowerInvariant()}");
 
-        void Paint() => swatch.Background = new SolidColorBrush(
-            Theme.TryParseColor(box.Text, out var c) ? c : themeColour(Theme.Current));
+        void Paint() => swatch.Background = new SolidColorBrush(WpfTheme.ToColor(
+            Theme.TryParseColor(box.Text, out var c) ? c : themeColour(Theme.Current)));
         Paint();
         _onThemeChanged.Add(Paint);
 
