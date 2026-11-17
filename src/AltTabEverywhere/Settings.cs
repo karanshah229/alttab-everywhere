@@ -309,6 +309,12 @@ internal sealed class Settings
     /// <summary>Ask GitHub for a newer release, at most once a day, at startup only. Off by default: the app never goes online unless this is on.</summary>
     public bool CheckForUpdates { get; set; }
 
+    /// <summary>
+    /// Experimental: draw the switcher with plain Win32 (GDI) instead of WPF. Much lighter; it becomes the only
+    /// switcher once it does everything the WPF one does. Takes effect from the next Alt+Tab.
+    /// </summary>
+    public bool ExperimentalWin32Switcher { get; set; }
+
     /// <summary>Clamps hand-edited values into ranges the app can cope with.</summary>
     public Settings Normalized()
     {

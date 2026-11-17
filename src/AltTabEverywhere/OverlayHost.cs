@@ -7,7 +7,7 @@ using System.Windows.Threading;
 namespace AltTabEverywhere;
 
 /// <summary>
-/// Runs one monitor's <see cref="SwitcherWindow"/> on its own UI thread, so all monitors build
+/// Runs one monitor's switcher (<see cref="SwitcherWindow"/> or <see cref="Win32SwitcherWindow"/>) on its own UI thread, so all monitors build
 /// and draw their switchers in parallel instead of one after another.
 ///
 /// Every call from the controller is marshalled onto the overlay's thread; events from the overlay
@@ -16,7 +16,7 @@ namespace AltTabEverywhere;
 /// </summary>
 internal sealed class OverlayHost
 {
-    private readonly SwitcherWindow _window;
+    private readonly ISwitcherView _window;
     private readonly Dispatcher _dispatcher;
 
     public MonitorInfo Monitor { get; }
@@ -35,10 +35,11 @@ internal sealed class OverlayHost
     public event Action<int>? TileMoveHereClicked;
     public event Action<int, TileMenuCommand>? TileMenuChosen;
 
-    public OverlayHost(MonitorInfo monitor, Dispatcher controller)
+    /// <param name="win32">The Win32 switcher (experimentalWin32Switcher) instead of the WPF one.</param>
+    public OverlayHost(MonitorInfo monitor, Dispatcher controller, bool win32 = false)
     {
         Monitor = monitor;
-        SwitcherWindow? window = null;
+        ISwitcherView? window = null;
         Dispatcher? dispatcher = null;
         Exception? error = null;
 
@@ -48,9 +49,9 @@ internal sealed class OverlayHost
             try
             {
                 dispatcher = Dispatcher.CurrentDispatcher;
-                window = new SwitcherWindow(monitor);
+                window = win32 ? new Win32SwitcherWindow(monitor) : new SwitcherWindow(monitor);
                 window.TileClicked += index => controller.InvokeAsync(() => TileClicked?.Invoke(index));
-                window.Deactivated += (_, _) => controller.InvokeAsync(() => Deactivated?.Invoke());
+                window.SwitcherDeactivated += () => controller.InvokeAsync(() => Deactivated?.Invoke());
                 window.TileCloseRequested += index => controller.InvokeAsync(() => TileCloseRequested?.Invoke(index));
                 window.TileHovered += index => controller.InvokeAsync(() => TileHovered?.Invoke(index));
                 window.TileBadgeClicked += index => controller.InvokeAsync(() => TileBadgeClicked?.Invoke(index));
@@ -121,7 +122,7 @@ internal sealed class OverlayHost
     /// Normal priority, i.e. after every update already queued (Invoke's default, Send, would jump
     /// ahead of them and read stale state).
     /// </summary>
-    public T Query<T>(Func<SwitcherWindow, T> read) => _dispatcher.Invoke(() => read(_window), DispatcherPriority.Normal);
+    public T Query<T>(Func<ISwitcherView, T> read) => _dispatcher.Invoke(() => read(_window), DispatcherPriority.Normal);
 
     public void Close()
     {

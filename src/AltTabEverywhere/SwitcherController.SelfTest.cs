@@ -21,14 +21,25 @@ internal sealed partial class SwitcherController
     /// scrolled into view, that the switcher stays within its size cap, and that opening a stack
     /// (by key and by resting on it) shows its windows and Back returns.
     /// </summary>
-    public async void RunSelfTest(Action<bool> done)
+    public void RunSelfTest(Action<bool> done) =>
+        // Both switchers, one after the other, until the Win32 one replaces WPF's.
+        RunSelfTestPass(win32: false, wpfPassed => RunSelfTestPass(win32: true, win32Passed =>
+        {
+            _win32ForTest = null;
+            done(wpfPassed && win32Passed);
+        }));
+
+    private async void RunSelfTestPass(bool win32, Action<bool> done)
     {
+        _win32ForTest = win32;
+        string engine = win32 ? "Win32" : "WPF";
+        Log.Info($"selftest: {engine} switcher");
         int checks = 0, failures = 0;
         string layoutTag = ""; // which layout a failure happened in
         void Fail(string message)
         {
             failures++;
-            if (failures <= 60) Log.Info("selftest FAIL: " + layoutTag + message);
+            if (failures <= 60) Log.Info($"selftest FAIL: [{engine}] " + layoutTag + message);
         }
 
         try
@@ -123,8 +134,8 @@ internal sealed partial class SwitcherController
                         var a = overlay.Query(w => w.AutomationOf(index));
                         checks += 3;
                         if (a.Name != want) Fail($"{count} tiles, {overlay.Monitor.DeviceName}, tile {index}: screen-reader name differs");
-                        if (a.Type != System.Windows.Automation.Peers.AutomationControlType.ListItem || a.Position != index + 1 || a.Count != count)
-                            Fail($"{count} tiles, {overlay.Monitor.DeviceName}, tile {index}: {a.Type} {a.Position} of {a.Count}");
+                        if (!a.IsListItem || a.Position != index + 1 || a.Count != count)
+                            Fail($"{count} tiles, {overlay.Monitor.DeviceName}, tile {index}: {(a.IsListItem ? "list item" : "not a list item")} {a.Position} of {a.Count}");
                         if (!a.Focused) Fail($"{count} tiles, {overlay.Monitor.DeviceName}, tile {index}: selected tile doesn't have focus");
                     }
                 }
@@ -311,7 +322,7 @@ internal sealed partial class SwitcherController
             foreach (var layout in Enum.GetValues<SwitcherLayout>())
             {
                 layoutTag = $"[{layout}] ";
-                var positions = new List<List<Rect>>();
+                var positions = new List<List<RectD>>();
                 foreach (var contrast in new[] { HighContrastMode.Off, HighContrastMode.On })
                 {
                     _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
@@ -336,7 +347,7 @@ internal sealed partial class SwitcherController
                 }
                 checks++;
                 // Each box grows into its margin by the extra border width, so compare centres.
-                static Point Centre(Rect r) => new(r.X + r.Width / 2, r.Y + r.Height / 2);
+                static (double X, double Y) Centre(RectD r) => (r.X + r.Width / 2, r.Y + r.Height / 2);
                 if (!positions[0].Select(Centre).SequenceEqual(positions[1].Select(Centre))) Fail("high contrast moved the tiles");
             }
             Theme.Rebuild(_store.Current);
@@ -737,7 +748,7 @@ internal sealed partial class SwitcherController
             _settingsOverride = null;
         }
 
-        Log.Info($"selftest: {checks} checks, {failures} failures");
+        Log.Info($"selftest ({engine} switcher): {checks} checks, {failures} failures");
         done(failures == 0);
     }
 
@@ -788,7 +799,7 @@ internal sealed partial class SwitcherController
 
             // The real flow after the idle trim (the usual case in daily use).
             var visibleAt = new List<double>();
-            int cloakedWhilePreparing = 0, revealedVisible = 0, runs = 0;
+            int cloakedWhilePreparing = 0, shownBeforeCheck = 0, revealedVisible = 0, runs = 0;
             for (int i = 0; i < 7; i++, runs++)
             {
                 MemoryTrimmer.TrimNow();
@@ -796,7 +807,8 @@ internal sealed partial class SwitcherController
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 BeginSession(reverse: false, sendMaskKey: false);
                 await Task.Delay(5);
-                if (!_uiShown && _plan.Count > 0 && _plan.Select(p => p.Host).All(o => IsDwmCloaked(o.Handle))) cloakedWhilePreparing++;
+                if (_uiShown) shownBeforeCheck++; // built and revealed within 5 ms: nothing to check
+                else if (_plan.Count > 0 && _plan.Select(p => p.Host).All(o => IsDwmCloaked(o.Handle))) cloakedWhilePreparing++;
                 await WaitUntilShown();
                 DwmFlush();
                 visibleAt.Add(sw.Elapsed.TotalMilliseconds);
@@ -807,7 +819,7 @@ internal sealed partial class SwitcherController
             }
             Log.Info($"measure: Alt+Tab -> on screen (median of {runs}, after trim): {Median(visibleAt):0} ms " +
                      $"[{string.Join("/", visibleAt.Select(t => t.ToString("0")))}] with showDelayMs {Settings.ShowDelayMs}; " +
-                     $"cloaked while preparing {cloakedWhilePreparing}/{runs}, uncloaked on reveal {revealedVisible}/{runs}");
+                     $"cloaked while preparing {cloakedWhilePreparing}/{runs - shownBeforeCheck} (shown within 5 ms: {shownBeforeCheck}), uncloaked on reveal {revealedVisible}/{runs}");
 
             // Stage-by-stage timing of a few opens.
             for (int i = 0; i < 3; i++)
@@ -891,7 +903,7 @@ internal sealed partial class SwitcherController
         await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
     }
 
-    private static IEnumerable<(string Name, Action<SwitcherController> Move, Func<IReadOnlyList<Rect>, int, int> Expected)> Directions()
+    private static IEnumerable<(string Name, Action<SwitcherController> Move, Func<IReadOnlyList<RectD>, int, int> Expected)> Directions()
     {
         yield return ("Right", c => c.Move(+1), (r, i) => (i + 1) % r.Count);
         yield return ("Left", c => c.Move(-1), (r, i) => (i - 1 + r.Count) % r.Count);
@@ -901,9 +913,9 @@ internal sealed partial class SwitcherController
 
     // ---- What the screen says should happen, worked out from tile positions only ----
 
-    private static bool SameColumn(Rect a, Rect b) => Math.Abs(a.X - b.X) < 2;
+    private static bool SameColumn(RectD a, RectD b) => Math.Abs(a.X - b.X) < 2;
 
-    private static int ExpectedDown(IReadOnlyList<Rect> rects, int i)
+    private static int ExpectedDown(IReadOnlyList<RectD> rects, int i)
     {
         var below = Enumerable.Range(0, rects.Count)
             .Where(j => SameColumn(rects[j], rects[i]) && rects[j].Y > rects[i].Y + 2)
@@ -916,7 +928,7 @@ internal sealed partial class SwitcherController
             .Where(j => SameColumn(rects[j], rects[i])).OrderBy(j => rects[j].Y).First();
     }
 
-    private static int ExpectedUp(IReadOnlyList<Rect> rects, int i)
+    private static int ExpectedUp(IReadOnlyList<RectD> rects, int i)
     {
         var above = Enumerable.Range(0, rects.Count)
             .Where(j => SameColumn(rects[j], rects[i]) && rects[j].Y < rects[i].Y - 2)
@@ -931,7 +943,7 @@ internal sealed partial class SwitcherController
     /// Page Up / Down from tile positions: as many rows as fit in the viewport, same column,
     /// stopping at the first / last row (the last tile when the short last row lacks the column).
     /// </summary>
-    private static int ExpectedPage(IReadOnlyList<Rect> rects, int i, int delta, double viewportHeight)
+    private static int ExpectedPage(IReadOnlyList<RectD> rects, int i, int delta, double viewportHeight)
     {
         var rowTops = rects.Select(r => Math.Round(r.Y)).Distinct().OrderBy(y => y).ToList();
         double pitch = rowTops.Count > 1 ? rowTops[1] - rowTops[0] : rects[i].Height + 10;
@@ -943,6 +955,6 @@ internal sealed partial class SwitcherController
         return hit.Count > 0 ? hit[0] : rects.Count - 1;
     }
 
-    private static int ColumnsOf(IReadOnlyList<Rect> rects) =>
+    private static int ColumnsOf(IReadOnlyList<RectD> rects) =>
         rects.Count == 0 ? 0 : rects.Count(r => Math.Abs(r.Y - rects[0].Y) < 2);
 }

@@ -222,6 +222,7 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 |---|---|---|
 | `startWithWindows` | `false` | Start when you sign in to Windows. Same as the tray toggle |
 | `checkForUpdates` | `false` | Ask GitHub for a newer release, at most once a day, at startup (or when you turn this on). If there is one, the tray menu gets a **Download version X…** item and a notification appears; both open the release page. Nothing is downloaded or installed automatically. The request carries only the app's name and version, and this is the only time the app ever goes online. Off by default |
+| `experimentalWin32Switcher` | `false` | Experimental: draws the switcher with plain Win32 (GDI and DWM) instead of WPF, the first step to a much lighter app (see the roadmap). Layout, previews, mouse actions and the right-click menu work as in the normal switcher; screen-reader support and tooltips are still being added. Takes effect from the next Alt+Tab |
 
 Example:
 
@@ -296,7 +297,7 @@ How it stays light:
 - **Warm-up at startup.** The switcher is built once, invisibly, so the first Alt+Tab doesn't wait for .NET to compile the code.
 - **The overlay windows are kept alive between opens.** Recreating them made each open about 60 ms slower and didn't lower committed memory.
 
-To reproduce the numbers, run `--measure`. It logs the first-open time after warm-up, a breakdown of where each open's time goes, the Alt+Tab-to-screen time, and memory and handles across 50 opens. Add `--hardware-rendering` to compare against WPF's GPU rendering:
+To reproduce the numbers, run `--measure`. It logs the first-open time after warm-up, a breakdown of where each open's time goes, the Alt+Tab-to-screen time, and memory and handles across 50 opens. Add `--hardware-rendering` to compare against WPF's GPU rendering, or `--win32-switcher` / `--wpf-switcher` to measure one switcher whatever `experimentalWin32Switcher` says (they work with `--demo` too):
 
 ```bash
 dotnet run -c Release --project src/AltTabEverywhere -- --measure

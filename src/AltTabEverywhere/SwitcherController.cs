@@ -27,6 +27,11 @@ internal sealed partial class SwitcherController : IDisposable
     private readonly MemoryTrimmer _trimmer = new(TimeSpan.FromSeconds(2));
     private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
     private readonly List<OverlayHost> _overlays = new();
+    /// <summary>Self-test: which switcher to build, whatever the settings say (null: the setting).</summary>
+    private bool? _win32ForTest;
+
+    /// <summary>--win32-switcher / --wpf-switcher, for --demo and --measure.</summary>
+    public void ForceSwitcher(bool win32) => _win32ForTest = win32;
     private string _monitorLayoutKey = "";
 
     // ---- Session state ----
@@ -599,13 +604,14 @@ internal sealed partial class SwitcherController : IDisposable
     private void EnsureOverlays()
     {
         var monitors = Monitors.GetAll();
-        string key = string.Join(";", monitors.Select(m => m.Key));
+        bool win32 = _win32ForTest ?? Settings.ExperimentalWin32Switcher;
+        string key = (win32 ? "win32;" : "wpf;") + string.Join(";", monitors.Select(m => m.Key));
         if (key == _monitorLayoutKey && _overlays.Count == monitors.Count) return;
 
         DiscardOverlays();
         foreach (var monitor in monitors)
         {
-            var overlay = new OverlayHost(monitor, _dispatcher);
+            var overlay = new OverlayHost(monitor, _dispatcher, win32);
             overlay.TileClicked += index => OnTileClicked(overlay, index);
             overlay.TileCloseRequested += index => OnTileCloseRequested(overlay, index);
             overlay.TileHovered += index => OnTileHovered(overlay, index);
@@ -616,7 +622,7 @@ internal sealed partial class SwitcherController : IDisposable
             _overlays.Add(overlay);
         }
         _monitorLayoutKey = key;
-        Log.Info($"overlays rebuilt for {monitors.Count} monitor(s)");
+        Log.Info($"overlays rebuilt for {monitors.Count} monitor(s) ({(win32 ? "Win32" : "WPF")} switcher)");
     }
 
     /// <summary>Destroys the overlay windows and their threads; the next Alt+Tab recreates them.</summary>

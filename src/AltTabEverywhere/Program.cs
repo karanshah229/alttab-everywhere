@@ -50,6 +50,9 @@ internal static class Program
         using var settings = new SettingsStore();
         settings.Load();
         using var controller = new SwitcherController(settings);
+        // --win32-switcher / --wpf-switcher: --demo and --measure use that switcher whatever the settings say.
+        if (args.Contains("--win32-switcher", StringComparer.OrdinalIgnoreCase)) controller.ForceSwitcher(win32: true);
+        if (args.Contains("--wpf-switcher", StringComparer.OrdinalIgnoreCase)) controller.ForceSwitcher(win32: false);
         TrayIcon? tray = null;
         SystemMessageWindow? systemEvents = null;
 

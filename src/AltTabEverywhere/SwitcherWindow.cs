@@ -20,7 +20,7 @@ namespace AltTabEverywhere;
 ///
 /// Note: AllowsTransparency must stay false — DWM thumbnails don't render on layered windows.
 /// </summary>
-internal sealed class SwitcherWindow : Window
+internal sealed class SwitcherWindow : Window, ISwitcherView
 {
     private const double WindowPadding = TileLayout.WindowPadding;
 
@@ -99,8 +99,8 @@ internal sealed class SwitcherWindow : Window
     /// Tile bounds in DIPs relative to the tile grid, in list order (used by --selftest).
     /// Relative to the grid, not the window, so scrolling doesn't change them.
     /// </summary>
-    public IReadOnlyList<Rect> TileRects =>
-        _tiles.Select(t => new Rect(t.Root.TranslatePoint(new Point(0, 0), _panel), t.Root.RenderSize)).ToList();
+    public IReadOnlyList<RectD> TileRects =>
+        _tiles.Select(t => { var p = t.Root.TranslatePoint(new Point(0, 0), _panel); return new RectD(p.X, p.Y, t.Root.RenderSize.Width, t.Root.RenderSize.Height); }).ToList();
 
     /// <summary>Whether a tile is entirely inside the scrolled viewport (used by --selftest).</summary>
     public bool IsTileFullyVisible(int index)
@@ -138,6 +138,7 @@ internal sealed class SwitcherWindow : Window
     public event Action<int>? TileBadgeClicked;
     public event Action<int>? TileMoveHereClicked;
     public event Action<int, TileMenuCommand>? TileMenuChosen;
+    public event Action? SwitcherDeactivated;
 
     private bool _middleClickCloses = true;
     private bool _ctrlClickMovesHere = true;
@@ -251,6 +252,7 @@ internal sealed class SwitcherWindow : Window
             Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
 
         SizeChanged += (_, _) => Reposition();
+        Deactivated += (_, _) => SwitcherDeactivated?.Invoke();
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(Reposition));
     }
 
@@ -645,8 +647,6 @@ internal sealed class SwitcherWindow : Window
     private ContextMenu? BuildTileMenu(FrameworkElement anchor, int index)
     {
         if (_menuSettings is not { } s || index < 0 || index >= _tiles.Count || _tiles[index].Window is not { } window) return null;
-        IntPtr hwnd = window.Handle;
-        bool minimized = Native.IsIconic(hwnd);
         var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.MousePoint };
         if (!_theme.IsHighContrast)
         {
@@ -656,31 +656,22 @@ internal sealed class SwitcherWindow : Window
             menu.BorderBrush = _theme.BadgeBackground;
             menu.Foreground = _theme.Text;
         }
-        string Hint(string key) => SwitcherKey.TryParse(key, out _) ? key : "";
-        // Running as administrator (and this app isn't): Windows only lets this app switch to it.
-        bool blocked = WindowActions.IsBlocked(hwnd);
-        void Add(string text, TileMenuCommand command, string gesture = "", bool isChecked = false)
+        foreach (var entry in TileMenuModel.For(window.Handle, s, out _))
         {
-            var item = new MenuItem { Header = text, InputGestureText = gesture, IsCheckable = isChecked, IsChecked = isChecked };
+            if (entry.Command == TileMenuCommand.Close) menu.Items.Add(new Separator());
+            var item = new MenuItem { Header = entry.Text, InputGestureText = entry.Gesture, IsCheckable = entry.Checked, IsChecked = entry.Checked };
             if (!_theme.IsHighContrast) item.Foreground = _theme.Text;
-            if (blocked && command != TileMenuCommand.Switch)
+            if (!entry.Enabled)
             {
                 item.IsEnabled = false;
                 item.Opacity = 0.45;
-                item.ToolTip = "Runs as administrator: Windows doesn't let this app change it";
+                item.ToolTip = TileMenuModel.BlockedReason;
                 ToolTipService.SetShowOnDisabled(item, true);
             }
+            var command = entry.Command;
             item.Click += (_, _) => TileMenuChosen?.Invoke(index, command);
             menu.Items.Add(item);
         }
-        Add("Switch to", TileMenuCommand.Switch, "Enter");
-        Add("Move to this monitor", TileMenuCommand.MoveHere, Hint(s.MoveHereKey));
-        Add(minimized ? "Restore" : "Minimize", TileMenuCommand.Minimize, Hint(s.MinimizeKey));
-        Add(!minimized && WindowActions.ShouldMaximize(hwnd) ? "Maximize" : "Restore and switch", TileMenuCommand.Maximize, Hint(s.MaximizeKey));
-        Add("Always on top", TileMenuCommand.AlwaysOnTop, Hint(s.AlwaysOnTopKey), WindowActions.IsTopmost(hwnd));
-        menu.Items.Add(new Separator());
-        Add("Close window", TileMenuCommand.Close, s.DeleteKeyCloses ? "Delete" : "");
-        Add("Quit app (close all its windows)", TileMenuCommand.QuitApp, Hint(s.QuitAppKey));
         return menu;
     }
 
@@ -733,12 +724,12 @@ internal sealed class SwitcherWindow : Window
     /// For the self-test: what UI Automation (screen readers) sees for tile <paramref name="index"/>,
     /// whether it has focus within this window, and its selection border's width.
     /// </summary>
-    public (string Name, AutomationControlType Type, int Position, int Count, bool Focused, double Border) AutomationOf(int index)
+    public TileAccessibility AutomationOf(int index)
     {
-        if (index < 0 || index >= _tiles.Count) return ("", AutomationControlType.Custom, 0, 0, false, 0);
+        if (index < 0 || index >= _tiles.Count) return default;
         var root = _tiles[index].Root;
         var peer = UIElementAutomationPeer.CreatePeerForElement(root);
-        return (peer?.GetName() ?? "", peer?.GetAutomationControlType() ?? AutomationControlType.Custom,
+        return new TileAccessibility(peer?.GetName() ?? "", peer?.GetAutomationControlType() == AutomationControlType.ListItem,
             AutomationProperties.GetPositionInSet(root), AutomationProperties.GetSizeOfSet(root),
             ReferenceEquals(FocusManager.GetFocusedElement(this), root), root.BorderThickness.Left);
     }

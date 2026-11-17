@@ -110,7 +110,7 @@ These make it safe to leave running all day, every day. None adds idle work.
 | # | Feature | Why / risk | Effort | Seen in |
 |---|---|---|---|---|
 | 34 | **Browser tabs as tiles** (Edge first) | Windows shows Edge tabs in Alt+Tab; Chrome needs an extension. Large and fragile | L | Windows |
-| 35 | **A lighter UI layer** (plain Win32/Direct2D or Rust) | Could take private memory under ~10 MB and opening under ~50 ms. Partial rewrite: only if WPF's limits bite | L | Ours |
+| 35 | 🚧 **A lighter UI layer**: plain Win32 (GDI, GDI+, DWM) in C#, NativeAOT optional. In progress: colours and icons are framework-free; a Win32 switcher is behind `experimentalWin32Switcher` (half the idle memory, twice as fast to open, same self-test). Next: screen readers, tooltips, then a Win32 message loop and tray so WPF loads only for the settings window | Prototype: ~9 MB private and ~28 ms to open, vs ~40 MB and ~80 ms today | L | Ours |
 | 37 | **Touchpad gesture** to open the switcher | Windows maps three-finger swipes to its own switcher; needs research | M | Windows, GNOME |
 | 38 | **Translations** | After the settings window exists | M | AltTab (macOS), GNOME, KDE |
 

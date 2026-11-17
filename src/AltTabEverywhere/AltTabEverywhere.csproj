@@ -9,6 +9,8 @@
     <!-- WPF + WinForms implicit usings collide (Application, Image, ...), so usings are explicit. -->
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- The Win32 switcher passes pointers to Windows (no marshalling, NativeAOT-friendly). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- dotnet publish -p:UiAccess=true (install.ps1 -AdminWindows): runs with uiAccess, which Windows
          only allows for a signed exe under Program Files. -->

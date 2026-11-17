@@ -26,7 +26,7 @@ Stop a running `AltTabEverywhere.exe` before you build: it locks the build outpu
 
 Two more checks run the real app:
 
-- **`--selftest`** drives the real switchers on every monitor: navigation, layouts, stacks, search, badges, accessibility, window actions and more. Exit code 0 means every check passed; details go to `%LOCALAPPDATA%\AltTabEverywhere\log.txt`. Run it after any change to layout, navigation or the switcher's behaviour. Some checks need two monitors and are skipped with one.
+- **`--selftest`** drives the real switchers on every monitor: navigation, layouts, stacks, search, badges, accessibility, window actions and more. It runs everything twice, on the WPF switcher and on the experimental Win32 one. Exit code 0 means every check passed; details go to `%LOCALAPPDATA%\AltTabEverywhere\log.txt`. Run it after any change to layout, navigation or the switcher's behaviour. Some checks need two monitors and are skipped with one.
 - **`--measure`** times opening the switcher and logs memory before and after 50 sessions. Run it before and after any change that could affect speed or idle cost, and put both sets of numbers in your pull request.
 
 ```bash
