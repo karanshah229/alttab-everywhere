@@ -762,23 +762,9 @@ internal sealed class SwitcherWindow : Window
                 ChangeWindowMessageFilterEx(Handle, msg, MSGFLT_ALLOW, IntPtr.Zero);
             _legacyFiltersSet = true;
         }
-        // WPF registers an OLE drop target on every window it creates, whatever AllowDrop says. A
-        // drag from a lower integrity level finds it first, is refused, and never falls back to
-        // WM_DROPFILES, so it has to go. (Within one run the mechanism never changes back, except
-        // in the self-test.)
-        if (legacy) RevokeDragDrop(Handle);
         DragAcceptFiles(Handle, legacy);
         _legacyDropOn = legacy;
     }
-
-    /// <summary>For the self-test: whether an OLE drop target is registered on this window.</summary>
-    public bool HasOleDropTarget => GetProp(Handle, "OleDropTargetInterface") != IntPtr.Zero;
-
-    [DllImport("ole32.dll")]
-    private static extern int RevokeDragDrop(IntPtr hwnd);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern IntPtr GetProp(IntPtr hwnd, string name);
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {

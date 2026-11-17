@@ -548,10 +548,10 @@ internal sealed partial class SwitcherController
                         await Settle();
                         foreach (var overlay in _plan.Select(p => p.Host))
                         {
-                            var (legacy, ole, centre) = overlay.Query(w => (w.UsesLegacyDrop, w.AllowDrop || w.HasOleDropTarget, w.TileCentreInClientPixels(1)));
+                            var (legacy, ole, centre) = overlay.Query(w => (w.UsesLegacyDrop, w.AllowDrop, w.TileCentreInClientPixels(1)));
                             long exStyle = Native.GetWindowLongPtr(overlay.Handle, Native.GWL_EXSTYLE).ToInt64();
                             checks += 2;
-                            if (!legacy || ole) Fail($"legacy drop, {overlay.Monitor.DeviceName}: legacy={legacy}, an OLE drop target is still registered={ole} (it would catch drags first)");
+                            if (!legacy || ole) Fail($"legacy drop, {overlay.Monitor.DeviceName}: legacy={legacy} ole={ole}");
                             if ((exStyle & 0x10 /* WS_EX_ACCEPTFILES */) == 0) Fail($"legacy drop, {overlay.Monitor.DeviceName}: window doesn't accept files");
 
                             _dropCapture.Clear();
