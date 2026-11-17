@@ -41,7 +41,7 @@ Inspiration comes from:
 - [x] Phase 2: type to search, several shortcuts with their own filters (including a current-app switcher), number keys, Home/End/Page Up/Page Down, hover to select
 - [x] Phase 3: settings window, own icon, light/dark and accent colours, layout styles (previews, large icons, compact list, icons only), Store app icons, state badges (minimized, admin, not responding, other desktop), Peek (outline the selected window), "Show desktop" tile, accessibility (screen-reader names, high contrast, keyboard-only colour picker)
 - [x] Phase 4: move the selected window to this monitor (Ctrl+Enter or Ctrl+click), window actions (minimize, maximize, always on top, quit app; keys and a right-click menu), sort orders (recent, stacking, app, title, monitor), previews for minimized windows
-- [x] Phase 5 (all but code signing): contributing guide, issue templates, CI, release packaging (zips, checksums, winget manifests), opt-in update check, README screenshots and GIF
+- [x] Phase 5: contributing guide, issue templates, CI, release packaging (zips, checksums, winget manifests), opt-in update check, README screenshots and GIF, build-on-your-machine install with local signing so it works over admin windows
 
 ---
 
@@ -94,7 +94,7 @@ These make it safe to leave running all day, every day. None adds idle work.
 | 26 | ✅ **Sort and group**: recently used (today), stacking order, by app, alphabetical; optional per-monitor sections | KDE offers stacking order as well as recently used | M | None | KDE, AltTab (macOS) |
 | 27 | ✅ **Previews for minimized windows** | Removes a known gap. No snapshot needed: DWM keeps a minimized window's last image (for the taskbar), and a normal thumbnail draws it | S | None | Alt-Tab Terminator |
 
-## Phase 5: Public release
+## Phase 5: Public release (done)
 
 | # | Feature | Why | Effort | Idle cost | Seen in |
 |---|---|---|---|---|---|
@@ -102,7 +102,7 @@ These make it safe to leave running all day, every day. None adds idle work.
 | 29 | ✅ **CI on GitHub Actions**: build and unit tests on every push | Protects the work as it grows | S | — | — |
 | 30 | ✅ **Release packaging**: zips (small and self-contained, x64 and Arm64), checksums, winget manifests, draft release on a tag | Easy install. ReadyToRun was measured and left out: no faster to open, bigger download | M | None | — |
 | 31 | ✅ **Update check**: opt-in, at most once a day, at startup only | Current without polling | S | None | Alt-Tab Terminator |
-| 32 | **`uiAccess`** so it works while an admin window has focus: built, signed on the user's own PC by `install.ps1 -AdminWindows` (no certificate to buy); waiting for a first test | Closes the biggest remaining gap. Needs a certificate and install under Program Files | M + cert | None | — |
+| 32 | ✅ **`uiAccess`** so it works while an admin window has focus: signed on the user's own PC by `install.ps1 -AdminWindows` (no certificate to buy) | Closes the biggest remaining gap. Needs a certificate and install under Program Files | M + cert | None | — |
 | 33 | ✅ **Screenshots and a short GIF in the README** (from staged sample windows) | People decide in five seconds | S | — | — |
 
 ## Phase 6: Explore later

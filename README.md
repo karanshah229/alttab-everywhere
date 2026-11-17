@@ -342,7 +342,7 @@ To check the window list against Windows, run `--list`. It writes both lists, th
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability), 2 (find windows faster), 3 (looks and settings) and 4 (multi-monitor power tools) are done. Phase 5 (public release) is done except code signing, which is postponed.
+See [ROADMAP.md](ROADMAP.md): 38 features in six ranked phases. Phases 1 (daily-driver reliability), 2 (find windows faster), 3 (looks and settings) and 4 (multi-monitor power tools) are done. Phase 5 (public release) is done too.
 
 ## License
 
