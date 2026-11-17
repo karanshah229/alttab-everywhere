@@ -110,7 +110,6 @@ dotnet run --project tools/IconGen
 | Ctrl+T (`alwaysOnTopKey`) | Keep the selected window above other windows, or stop. The switcher stays open; a pin badge shows it |
 | Ctrl+Shift+Q (`quitAppKey`) | Quit the selected window's app: every listed window of that app is asked to close (apps can still ask to save). The switcher stays open |
 | Right-click a tile | A menu with all of these actions and their keys: switch to, move to this monitor, minimize, maximize, always on top, close window, quit app |
-| Drag files, then Alt+Tab, and drop on a tile | Open the files in that window's app (like dropping on an app in macOS's Cmd+Tab). Dragging over a tile selects it; Back, Show desktop, File Explorer and apps that can't take files show the "no" cursor |
 | Middle-click a tile, or click its × | Close that window |
 | Mouse wheel | Scroll, when there are more windows than fit |
 | Click outside the switcher | Close it |
@@ -172,7 +171,6 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 | `alwaysOnTopKey` | `"Ctrl+T"` | Turn always-on-top on or off for the selected window; the switcher stays open, and above it. Windows running as administrator refuse unless this app is too |
 | `quitAppKey` | `"Ctrl+Shift+Q"` | Ask every listed window of the selected window's app to close, like clicking each one's ×. Apps can still ask to save; nothing is force-killed |
 | `tileMenu` | `true` | Right-clicking a tile opens a menu of the window actions, each showing its key. Built only when opened |
-| `dropFilesOnTiles` | `true` | While dragging files (from Explorer, a browser, an email...), press Alt+Tab and drop them on a tile: the switcher switches to that window and opens the files in its app. Desktop apps get the files on their own command line, which most hand to their running window; Store and packaged apps get them through Windows' `IApplicationActivationManager`. File Explorer windows don't take drops (that would only open each file's default app). Off: the switcher isn't a drop target at all |
 | `excludedApps` | `[]` | Apps never listed. Each entry can be an executable name (`"notepad.exe"` or `"notepad"`), a full path, or a shell app ID (see `--list`) |
 | `excludedTitles` | `[]` | Windows never listed if their title contains any of these. Not case-sensitive |
 
@@ -270,7 +268,6 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 | Move here | `GetWindowPlacement` / `SetWindowPlacement` with the normal position mapped onto the new work area (workspace coordinates allowed for), then `SW_MAXIMIZE` for maximized windows | `Interop/WindowMover.cs` |
 | Working over admin windows | `uiAccess="true"` in `app.uiaccess.manifest` (built with `-p:UiAccess=true`), signed with a certificate made, trusted and then stripped of its private key on the user's own PC by `install.ps1 -AdminWindows`; the app reads `TokenUIAccess` and then allows window actions on admin windows | `install.ps1`, `Interop/ProcessElevation.cs` |
 | Window actions | `ShowWindowAsync` (minimize, restore, maximize: never waits on a frozen app), `SetWindowPos(HWND_TOPMOST)` followed by raising the switcher again, and `WM_CLOSE` to each of an app's windows | `WindowActions.cs` |
-| Drop files on tiles | WPF drop target on each switcher (OLE `RegisterDragDrop`, only while the setting is on); files go to the window's exe with `CommandLineToArgvW`-safe quoting, or to `IApplicationActivationManager::ActivateForFile` for packaged apps | `Interop/FileOpener.cs` |
 | Accessibility | Tiles are UI Automation list items (`TileBorder`, `TilePanel`) named from their window, with `PositionInSet`/`SizeOfSet`; focus follows the selection; "No windows match" is a live region. Contrast theme read with `SPI_GETHIGHCONTRAST` and `GetSysColor`, refreshed on `WM_SYSCOLORCHANGE` | `TileAutomation.cs`, `Theme.cs` |
 | Switch windows | `SetForegroundWindow`, with an `AttachThreadInput` fallback | `WindowActivator.cs` |
 

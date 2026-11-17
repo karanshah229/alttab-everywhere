@@ -138,10 +138,6 @@ internal sealed class SwitcherWindow : Window
     public event Action<int>? TileBadgeClicked;
     public event Action<int>? TileMoveHereClicked;
     public event Action<int, TileMenuCommand>? TileMenuChosen;
-    /// <summary>dropFilesOnTiles: a file drag entered a tile (select it).</summary>
-    public event Action<int>? TileDragEntered;
-    /// <summary>dropFilesOnTiles: files were dropped on a tile that can take them.</summary>
-    public event Action<int, string[]>? TileFilesDropped;
 
     private bool _middleClickCloses = true;
     private bool _ctrlClickMovesHere = true;
@@ -245,14 +241,6 @@ internal sealed class SwitcherWindow : Window
 
         Handle = new WindowInteropHelper(this).EnsureHandle();
 
-        // Dragging files over the space between tiles: nothing to drop on there.
-        DragOver += (_, e) =>
-        {
-            if (e.Handled) return;
-            e.Effects = DragDropEffects.None;
-            e.Handled = true;
-        };
-
         int round = Native.DWMWCP_ROUND;
         Native.DwmSetWindowAttribute(Handle, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
         int dark = _theme.IsDark ? 1 : 0;
@@ -282,7 +270,6 @@ internal sealed class SwitcherWindow : Window
         _menuSettings = settings.TileMenu ? settings : null;
         _showCloseButton = settings.ShowCloseButton;
         _hoverSelects = settings.HoverSelects;
-        AllowDrop = settings.DropFilesOnTiles; // registers this window as a drop target only when wanted
         _announce = settings.ScreenReaderAnnouncements;
         Native.GetCursorPos(out _lastCursor);
         bool showNumbers = settings.NumberKeys != NumberKeys.Off && settings.ShowTileNumbers;
@@ -632,36 +619,6 @@ internal sealed class SwitcherWindow : Window
             _lastCursor = cursor;
             TileHovered?.Invoke(index);
         };
-        // dropFilesOnTiles: drag files here (Alt+Tab while dragging) to open them in this window's app.
-        // Back, Show desktop and apps that can't take files show the "no" cursor.
-        bool CanTake(DragEventArgs e)
-        {
-            if (glyph is not null || index >= _tiles.Count || _tiles[index].Window is not { } window || !e.Data.GetDataPresent(DataFormats.FileDrop)) return false;
-            var tile = _tiles[index];
-            tile.DropPlan ??= FileOpener.PlanFor(window);
-            return tile.DropPlan.How != FileOpener.How.NotSupported;
-        }
-        root.DragEnter += (_, e) =>
-        {
-            e.Effects = CanTake(e) ? DragDropEffects.Copy : DragDropEffects.None;
-            e.Handled = true;
-            TileDragEntered?.Invoke(index);
-        };
-        root.DragOver += (_, e) =>
-        {
-            e.Effects = CanTake(e) ? DragDropEffects.Copy : DragDropEffects.None;
-            e.Handled = true;
-        };
-        root.Drop += (_, e) =>
-        {
-            e.Handled = true;
-            if (CanTake(e) && e.Data.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } files)
-            {
-                e.Effects = DragDropEffects.Copy;
-                TileFilesDropped?.Invoke(index, files);
-            }
-            else e.Effects = DragDropEffects.None;
-        };
         root.MouseEnter += (_, _) => { if (_showCloseButton && glyph is null && !iconsOnly) close.Visibility = Visibility.Visible; };
         root.MouseLeave += (_, _) => close.Visibility = Visibility.Collapsed;
 
@@ -930,8 +887,6 @@ internal sealed class SwitcherWindow : Window
         public TextBlock Title { get; } = title;
         public Image Placeholder { get; } = placeholder;
         public Border Badge { get; } = badge;
-        /// <summary>dropFilesOnTiles: how its app would open dropped files, worked out on the first drag over it.</summary>
-        public FileOpener.Plan? DropPlan { get; set; }
         public TextBlock BadgeText { get; } = badgeText;
         /// <summary>The window this tile currently shows (changes when a stack is cycled).</summary>
         public WindowInfo? Window { get; set; }

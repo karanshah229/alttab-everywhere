@@ -34,8 +34,6 @@ internal sealed class OverlayHost
     public event Action<int>? TileBadgeClicked;
     public event Action<int>? TileMoveHereClicked;
     public event Action<int, TileMenuCommand>? TileMenuChosen;
-    public event Action<int>? TileDragEntered;
-    public event Action<int, string[]>? TileFilesDropped;
 
     public OverlayHost(MonitorInfo monitor, Dispatcher controller)
     {
@@ -58,8 +56,6 @@ internal sealed class OverlayHost
                 window.TileBadgeClicked += index => controller.InvokeAsync(() => TileBadgeClicked?.Invoke(index));
                 window.TileMoveHereClicked += index => controller.InvokeAsync(() => TileMoveHereClicked?.Invoke(index));
                 window.TileMenuChosen += (index, command) => controller.InvokeAsync(() => TileMenuChosen?.Invoke(index, command));
-                window.TileDragEntered += index => controller.InvokeAsync(() => TileDragEntered?.Invoke(index));
-                window.TileFilesDropped += (index, files) => controller.InvokeAsync(() => TileFilesDropped?.Invoke(index, files));
             }
             catch (Exception ex)
             {

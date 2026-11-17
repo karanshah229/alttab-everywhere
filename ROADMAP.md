@@ -42,7 +42,6 @@ Inspiration comes from:
 - [x] Phase 3: settings window, own icon, light/dark and accent colours, layout styles (previews, large icons, compact list, icons only), Store app icons, state badges (minimized, admin, not responding, other desktop), Peek (outline the selected window), "Show desktop" tile, accessibility (screen-reader names, high contrast, keyboard-only colour picker)
 - [x] Phase 4: move the selected window to this monitor (Ctrl+Enter or Ctrl+click), window actions (minimize, maximize, always on top, quit app; keys and a right-click menu), sort orders (recent, stacking, app, title, monitor), previews for minimized windows
 - [x] Phase 5: contributing guide, issue templates, CI, release packaging (zips, checksums, winget manifests), opt-in update check, README screenshots and GIF, build-on-your-machine install with local signing so it works over admin windows
-- [x] Phase 6 (part): drop files on a tile to open them in that app
 
 ---
 
@@ -112,7 +111,7 @@ These make it safe to leave running all day, every day. None adds idle work.
 |---|---|---|---|---|
 | 34 | **Browser tabs as tiles** (Edge first) | Windows shows Edge tabs in Alt+Tab; Chrome needs an extension. Large and fragile | L | Windows |
 | 35 | **A lighter UI layer** (plain Win32/Direct2D or Rust) | Could take private memory under ~10 MB and opening under ~50 ms. Partial rewrite: only if WPF's limits bite | L | Ours |
-| 36 | ✅ **Drop a file on a tile** to open it in that app | macOS Cmd+Tab accepts dropped files | M | macOS |
+| 36 | **Drop a file on a tile** to open it in that app | macOS Cmd+Tab accepts dropped files | M | macOS |
 | 37 | **Touchpad gesture** to open the switcher | Windows maps three-finger swipes to its own switcher; needs research | M | Windows, GNOME |
 | 38 | **Translations** | After the settings window exists | M | AltTab (macOS), GNOME, KDE |
 
