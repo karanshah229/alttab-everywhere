@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
@@ -245,6 +246,8 @@ internal sealed class SwitcherWindow : Window
 
         Handle = new WindowInteropHelper(this).EnsureHandle();
 
+        HwndSource.FromHwnd(Handle).AddHook(WndProc);
+
         // Dragging files over the space between tiles: nothing to drop on there.
         DragOver += (_, e) =>
         {
@@ -282,7 +285,7 @@ internal sealed class SwitcherWindow : Window
         _menuSettings = settings.TileMenu ? settings : null;
         _showCloseButton = settings.ShowCloseButton;
         _hoverSelects = settings.HoverSelects;
-        AllowDrop = settings.DropFilesOnTiles; // registers this window as a drop target only when wanted
+        ConfigureDrop(settings.DropFilesOnTiles);
         _announce = settings.ScreenReaderAnnouncements;
         Native.GetCursorPos(out _lastCursor);
         bool showNumbers = settings.NumberKeys != NumberKeys.Off && settings.ShowTileNumbers;
@@ -726,6 +729,127 @@ internal sealed class SwitcherWindow : Window
         Add("Quit app (close all its windows)", TileMenuCommand.QuitApp, Hint(s.QuitAppKey));
         return menu;
     }
+
+    // ---- Dropping files (dropFilesOnTiles) ----
+
+    /// <summary>
+    /// Whether drops arrive as WM_DROPFILES instead of through OLE. Needed when this app runs above
+    /// Explorer's integrity level (the uiAccess install, or run as administrator): Windows blocks OLE
+    /// drag and drop from a lower level to a higher one, but lets WM_DROPFILES through once the
+    /// window accepts it. The cost: no drag-over feedback per tile, only the drop itself.
+    /// </summary>
+    internal static bool UseLegacyDrop => LegacyDropOverride ?? (ProcessElevation.HasUiAccess || ProcessElevation.IsSelfElevated);
+
+    /// <summary>For the self-test: force either drop mechanism.</summary>
+    internal static bool? LegacyDropOverride { get; set; }
+
+    private bool _legacyDropOn;
+    private bool _legacyFiltersSet;
+
+    /// <summary>Whether this switcher takes dropped files now, by either mechanism (self-test).</summary>
+    public bool AcceptsDroppedFiles => AllowDrop || _legacyDropOn;
+    public bool UsesLegacyDrop => _legacyDropOn;
+
+    private void ConfigureDrop(bool on)
+    {
+        bool legacy = on && UseLegacyDrop;
+        AllowDrop = on && !legacy; // OLE drop target, registered only when wanted
+        if (legacy == _legacyDropOn) return;
+        if (legacy && !_legacyFiltersSet)
+        {
+            // Let the lower-integrity drag source's messages reach this window.
+            foreach (uint msg in new uint[] { WM_DROPFILES, WM_COPYDATA, WM_COPYGLOBALDATA })
+                ChangeWindowMessageFilterEx(Handle, msg, MSGFLT_ALLOW, IntPtr.Zero);
+            _legacyFiltersSet = true;
+        }
+        DragAcceptFiles(Handle, legacy);
+        _legacyDropOn = legacy;
+    }
+
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == WM_DROPFILES && _legacyDropOn)
+        {
+            handled = true;
+            OnLegacyDrop(wParam);
+        }
+        return IntPtr.Zero;
+    }
+
+    /// <summary>WM_DROPFILES: the files and where they were dropped; the tile under that point gets them.</summary>
+    private void OnLegacyDrop(IntPtr drop)
+    {
+        var files = new List<string>();
+        POINT point;
+        try
+        {
+            uint count = DragQueryFile(drop, uint.MaxValue, null, 0);
+            for (uint i = 0; i < count; i++)
+            {
+                uint length = DragQueryFile(drop, i, null, 0);
+                var name = new System.Text.StringBuilder((int)length + 1);
+                if (DragQueryFile(drop, i, name, (uint)name.Capacity) > 0) files.Add(name.ToString());
+            }
+            DragQueryPoint(drop, out point);
+        }
+        finally
+        {
+            DragFinish(drop);
+        }
+        ClientToScreen(Handle, ref point);
+        int index = TileAt(PointFromScreen(new Point(point.X, point.Y)));
+        if (index < 0 || files.Count == 0) return;
+        var tile = _tiles[index];
+        if (tile.Window is not { } window) return; // Back, Show desktop
+        tile.DropPlan ??= FileOpener.PlanFor(window);
+        if (tile.DropPlan.How == FileOpener.How.NotSupported)
+        {
+            Log.Info("drop: that window's app can't take files");
+            return;
+        }
+        TileFilesDropped?.Invoke(index, files.ToArray());
+    }
+
+    /// <summary>The tile at a point in this window (device-independent pixels), or -1.</summary>
+    private int TileAt(Point point)
+    {
+        for (var node = InputHitTest(point) as DependencyObject; node is not null; node = VisualTreeHelper.GetParent(node) ?? LogicalTreeHelper.GetParent(node))
+            if (node is TileBorder border) return _tiles.FindIndex(t => ReferenceEquals(t.Root, border));
+        return -1;
+    }
+
+    /// <summary>For the self-test: the centre of tile <paramref name="index"/> in this window's client pixels.</summary>
+    public POINT TileCentreInClientPixels(int index)
+    {
+        var root = _tiles[index].Root;
+        var centre = root.TranslatePoint(new Point(root.ActualWidth / 2, root.ActualHeight / 2), this);
+        var dpi = VisualTreeHelper.GetDpi(this);
+        return new POINT { X = (int)(centre.X * dpi.DpiScaleX), Y = (int)(centre.Y * dpi.DpiScaleY) };
+    }
+
+    private const int WM_DROPFILES = 0x0233;
+    private const uint WM_COPYDATA = 0x004A, WM_COPYGLOBALDATA = 0x0049, MSGFLT_ALLOW = 1;
+
+    [DllImport("shell32.dll")]
+    private static extern void DragAcceptFiles(IntPtr hwnd, [MarshalAs(UnmanagedType.Bool)] bool accept);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint DragQueryFile(IntPtr drop, uint index, System.Text.StringBuilder? file, uint length);
+
+    [DllImport("shell32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DragQueryPoint(IntPtr drop, out POINT point);
+
+    [DllImport("shell32.dll")]
+    private static extern void DragFinish(IntPtr drop);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ChangeWindowMessageFilterEx(IntPtr hwnd, uint message, uint action, IntPtr changeFilterStruct);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClientToScreen(IntPtr hwnd, ref POINT point);
 
     private const string MenuTemplateXaml =
         "<ControlTemplate TargetType=\"ContextMenu\" xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">" +

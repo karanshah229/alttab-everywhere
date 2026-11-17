@@ -16,6 +16,35 @@ internal sealed partial class SwitcherController
     private static readonly int[] SelfTestCounts = { 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 13, 17, 23, 31, 47 };
 
     /// <summary>
+    /// Sends a WM_DROPFILES like the shell's: a DROPFILES block with one wide path, dropped at a point
+    /// in the window's client pixels. The receiver frees it (DragFinish).
+    /// </summary>
+    private static void SendDrop(IntPtr hwnd, string file, int x, int y)
+    {
+        byte[] path = System.Text.Encoding.Unicode.GetBytes(file + "\0\0");
+        const int header = 20; // DROPFILES: pFiles, pt.x, pt.y, fNC, fWide
+        IntPtr memory = GlobalAlloc(0x0042 /* GMEM_MOVEABLE | GMEM_ZEROINIT */, (UIntPtr)(header + path.Length));
+        IntPtr p = GlobalLock(memory);
+        System.Runtime.InteropServices.Marshal.WriteInt32(p, 0, header);
+        System.Runtime.InteropServices.Marshal.WriteInt32(p, 4, x);
+        System.Runtime.InteropServices.Marshal.WriteInt32(p, 8, y);
+        System.Runtime.InteropServices.Marshal.WriteInt32(p, 12, 0);
+        System.Runtime.InteropServices.Marshal.WriteInt32(p, 16, 1);
+        System.Runtime.InteropServices.Marshal.Copy(path, 0, p + header, path.Length);
+        GlobalUnlock(memory);
+        Native.SendMessageTimeout(hwnd, 0x0233 /* WM_DROPFILES */, memory, IntPtr.Zero, 0, 5000, out _);
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern IntPtr GlobalAlloc(uint flags, UIntPtr bytes);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern IntPtr GlobalLock(IntPtr memory);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool GlobalUnlock(IntPtr memory);
+
+    /// <summary>
     /// --selftest: for several tile counts (some tiles are app stacks), checks on every monitor that
     /// each arrow key lands where the tiles' on-screen positions say it should, that the selection is
     /// scrolled into view, that the switcher stays within its size cap, and that opening a stack
@@ -105,7 +134,7 @@ internal sealed partial class SwitcherController
                 foreach (var overlay in shown)
                 {
                     checks++;
-                    if (overlay.Query(w => w.AllowDrop) != Settings.DropFilesOnTiles)
+                    if (overlay.Query(w => w.AcceptsDroppedFiles) != Settings.DropFilesOnTiles)
                         Fail($"{count} tiles, {overlay.Monitor.DeviceName}: accepts dropped files = {!Settings.DropFilesOnTiles}, setting says {Settings.DropFilesOnTiles}");
                 }
 
@@ -487,6 +516,66 @@ internal sealed partial class SwitcherController
                     if (recentOthers.Count > 0 && !_items[_selected].Contains((reverse ? recentOthers[^1] : recentOthers[0]).Handle))
                         Fail($"{tag}: the start tile isn't the {(reverse ? "least" : "most")} recent other window");
                     End();
+                }
+            }
+
+            // Dropping files through WM_DROPFILES, the path the high-integrity (uiAccess) install uses:
+            // a real drop message with a temporary file, sent to the centre of a real window's tile on
+            // every switcher, reaches that tile; a drop between tiles reaches nothing. Drops are
+            // recorded, never opened.
+            {
+                var target = real.FirstOrDefault(w => FileOpener.PlanFor(w).How != FileOpener.How.NotSupported);
+                if (target is null) Log.Info("selftest: legacy drop skipped (no open window's app takes files)");
+                else
+                {
+                    string file = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"alttab-selftest-{Guid.NewGuid():N}.txt");
+                    System.IO.File.WriteAllText(file, "selftest");
+                    SwitcherWindow.LegacyDropOverride = true;
+                    _dropCapture = new();
+                    try
+                    {
+                        _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
+                        _settingsOverride.ShowDesktopTile = false;
+                        _settingsOverride.DropFilesOnTiles = true;
+                        _items = new List<SwitcherItem> { new(new[] { real.First(w => w != target) }), new(new[] { target }) };
+                        _testItems = _items;
+                        _windows = _items.SelectMany(i => i.Windows).ToList();
+                        _active = true;
+                        _sessionId++;
+                        _selected = 0;
+                        PlanForTest(_items);
+                        await ShowUiAsync();
+                        await Settle();
+                        foreach (var overlay in _plan.Select(p => p.Host))
+                        {
+                            var (legacy, ole, centre) = overlay.Query(w => (w.UsesLegacyDrop, w.AllowDrop, w.TileCentreInClientPixels(1)));
+                            long exStyle = Native.GetWindowLongPtr(overlay.Handle, Native.GWL_EXSTYLE).ToInt64();
+                            checks += 2;
+                            if (!legacy || ole) Fail($"legacy drop, {overlay.Monitor.DeviceName}: legacy={legacy} ole={ole}");
+                            if ((exStyle & 0x10 /* WS_EX_ACCEPTFILES */) == 0) Fail($"legacy drop, {overlay.Monitor.DeviceName}: window doesn't accept files");
+
+                            _dropCapture.Clear();
+                            SendDrop(overlay.Handle, file, centre.X, centre.Y);
+                            await Settle();
+                            checks++;
+                            if (_dropCapture.Count != 1 || _dropCapture[0].Host != overlay || _dropCapture[0].Index != 1 ||
+                                _dropCapture[0].Files.Length != 1 || !string.Equals(_dropCapture[0].Files[0], file, StringComparison.OrdinalIgnoreCase))
+                                Fail($"legacy drop, {overlay.Monitor.DeviceName}: drop on tile 1 gave {string.Join("; ", _dropCapture.Select(d => $"tile {d.Index} ({d.Files.Length} files)"))}");
+
+                            _dropCapture.Clear();
+                            SendDrop(overlay.Handle, file, 2, 2); // the window's corner, outside every tile
+                            await Settle();
+                            checks++;
+                            if (_dropCapture.Count != 0) Fail($"legacy drop, {overlay.Monitor.DeviceName}: a drop between tiles reached tile {_dropCapture[0].Index}");
+                        }
+                    }
+                    finally
+                    {
+                        SwitcherWindow.LegacyDropOverride = null;
+                        _dropCapture = null;
+                        if (_active) End();
+                        System.IO.File.Delete(file);
+                    }
                 }
             }
 
