@@ -101,6 +101,14 @@ internal sealed partial class SwitcherController
                     }
                 }
 
+                // dropFilesOnTiles: every switcher is a drop target exactly when the setting is on.
+                foreach (var overlay in shown)
+                {
+                    checks++;
+                    if (overlay.Query(w => w.AllowDrop) != Settings.DropFilesOnTiles)
+                        Fail($"{count} tiles, {overlay.Monitor.DeviceName}: accepts dropped files = {!Settings.DropFilesOnTiles}, setting says {Settings.DropFilesOnTiles}");
+                }
+
                 // Right-click menu: every switcher offers the seven entries, each with its key.
                 foreach (var overlay in shown)
                 {

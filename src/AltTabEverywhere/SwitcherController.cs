@@ -612,6 +612,8 @@ internal sealed partial class SwitcherController : IDisposable
             overlay.TileBadgeClicked += index => OnTileBadgeClicked(overlay, index);
             overlay.TileMoveHereClicked += index => OnTileMoveHereClicked(overlay, index);
             overlay.TileMenuChosen += (index, command) => OnTileMenu(overlay, index, command);
+            overlay.TileDragEntered += index => OnTileDragEntered(overlay, index);
+            overlay.TileFilesDropped += (index, files) => OnTileFilesDropped(overlay, index, files);
             overlay.Deactivated += OnOverlayDeactivated;
             _overlays.Add(overlay);
         }
@@ -1027,6 +1029,28 @@ internal sealed partial class SwitcherController : IDisposable
         if (!_uiPrepared) return;
         int selected = _selected;
         Replan(items => Math.Clamp(selected, 0, Math.Max(0, items.Count - 1)));
+    }
+
+    /// <summary>dropFilesOnTiles: a file drag reached a tile of the keyboard's switcher: select it.</summary>
+    private void OnTileDragEntered(OverlayHost host, int index)
+    {
+        if (_active && host == _focusOverlay && index != _selected && index < _items.Count) Select(index);
+    }
+
+    /// <summary>
+    /// dropFilesOnTiles: files dropped on a tile. Switch to that window and open them in its app
+    /// (its exe for desktop apps, Windows' activation for Store apps). The tile only accepted the
+    /// drop if its app can take files.
+    /// </summary>
+    private void OnTileFilesDropped(OverlayHost host, int index, string[] files)
+    {
+        if (!_active || ItemAt(host, index) is not { HasWindow: true } item) return;
+        var window = item.Shown;
+        var plan = FileOpener.PlanFor(window);
+        WindowActivator.Activate(window.Handle); // before hiding the overlays, as Commit does
+        End();
+        bool opened = FileOpener.Open(plan, files);
+        Log.Info(opened ? $"drop: opened {files.Length} file(s) in a window's app ({plan.How})" : "drop: the app couldn't take the files");
     }
 
     /// <summary>A command from a tile's right-click menu.</summary>

@@ -210,6 +210,9 @@ internal sealed class Settings
     /// <summary>Right-clicking a tile opens a menu of these actions (and switch, move here, close).</summary>
     public bool TileMenu { get; set; } = true;
 
+    /// <summary>Drag files, press Alt+Tab while dragging, and drop them on a tile to open them in that window's app.</summary>
+    public bool DropFilesOnTiles { get; set; } = true;
+
     /// <summary>Apps never listed: executable names ("notepad.exe" or "notepad"), full paths, or app IDs.</summary>
     public List<string> ExcludedApps { get; set; } = new();
 

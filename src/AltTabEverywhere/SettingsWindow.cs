@@ -262,6 +262,7 @@ internal sealed class SettingsWindow : Window
         SwitcherKeyRow("Always on top key", "Keep the window above others, or stop.", "alwaysOnTopKey", _s.AlwaysOnTopKey, "Ctrl+T", "F6");
         SwitcherKeyRow("Quit app key", "Close every window of the selected app.", "quitAppKey", _s.QuitAppKey, "Ctrl+Shift+Q", "Ctrl+Q");
         Toggle("Right-click menu on tiles", "All of these actions, with their keys.", "tileMenu", _s.TileMenu);
+        Toggle("Drop files on tiles", "Alt+Tab while dragging files, drop on a tile to open them in that app.", "dropFilesOnTiles", _s.DropFilesOnTiles);
 
         Section("Appearance");
         Choice("Layout", "Only live previews show window contents; the others use less memory.", "layout", _s.Layout, LayoutOptions);
