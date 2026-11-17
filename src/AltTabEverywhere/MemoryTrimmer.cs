@@ -1,7 +1,6 @@
 using System;
 using System.Runtime;
 using System.Runtime.InteropServices;
-using System.Windows.Threading;
 
 namespace AltTabEverywhere;
 
@@ -12,11 +11,11 @@ namespace AltTabEverywhere;
 /// </summary>
 internal sealed class MemoryTrimmer
 {
-    private readonly DispatcherTimer _timer;
+    private readonly UiTimer _timer;
 
     public MemoryTrimmer(TimeSpan delay)
     {
-        _timer = new DispatcherTimer { Interval = delay };
+        _timer = new UiTimer { Interval = delay };
         _timer.Tick += (_, _) =>
         {
             _timer.Stop();

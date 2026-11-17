@@ -750,16 +750,13 @@ internal sealed class SwitcherWindow : Window, ISwitcherView
         if (Native.DwmRegisterThumbnail(Handle, window.Handle, out var thumb) != 0) return;
         // A window minimized before it ever drew (started minimized, say) only has its tiny
         // minimized caption to show: the icon is better.
-        if (minimized && (Native.DwmQueryThumbnailSourceSize(thumb, out var source) != 0 || IsMinimizedCaption(source.cx, source.cy)))
+        if (minimized && (Native.DwmQueryThumbnailSourceSize(thumb, out var source) != 0 || TileLayout.IsMinimizedCaption(source.cx, source.cy)))
         {
             Native.DwmUnregisterThumbnail(thumb);
             return;
         }
         tile.Thumbnail = thumb;
     }
-
-    /// <summary>The size Windows gives a minimized window's own caption (about 160×28), as opposed to its last real image.</summary>
-    internal static bool IsMinimizedCaption(int width, int height) => width <= 260 && height <= 60;
 
     /// <summary>For the self-test: the size of tile <paramref name="index"/>'s live preview, or (0, 0) if it shows the icon.</summary>
     public (int Width, int Height) PreviewSourceSize(int index)

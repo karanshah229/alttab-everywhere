@@ -19,7 +19,7 @@ internal static unsafe class Win32
     public const int MK_CONTROL = 0x0008;
 
     // ---- Window styles ----
-    public const uint WS_POPUP = 0x80000000, WS_CLIPCHILDREN = 0x02000000;
+    public const uint WS_POPUP = 0x80000000, WS_CLIPCHILDREN = 0x02000000, WS_OVERLAPPEDWINDOW = 0x00CF0000;
     public const uint WS_EX_TOPMOST = 0x00000008, WS_EX_TOOLWINDOW = 0x00000080;
     public const uint CS_HREDRAW = 0x0002, CS_VREDRAW = 0x0001;
     public const int GWLP_USERDATA = -21;
@@ -160,6 +160,28 @@ internal static unsafe class Win32
     [DllImport("comctl32.dll")] public static extern int InitCommonControlsEx(INITCOMMONCONTROLSEX* icc);
     [DllImport("user32.dll")] public static extern nint SendMessageW(IntPtr hwnd, uint msg, nint wParam, nint lParam);
 
+    // ---- Message loop ----
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public nint wParam;
+        public nint lParam;
+        public uint time;
+        public POINT pt;
+        public uint lPrivate;
+    }
+
+    [DllImport("user32.dll")] public static extern int GetMessageW(MSG* msg, IntPtr hwnd, uint min, uint max);
+    [DllImport("user32.dll")] public static extern int PeekMessageW(MSG* msg, IntPtr hwnd, uint min, uint max, uint remove);
+    [DllImport("user32.dll")] public static extern int TranslateMessage(MSG* msg);
+    [DllImport("user32.dll")] public static extern nint DispatchMessageW(MSG* msg);
+    [DllImport("user32.dll")] public static extern void PostQuitMessage(int exitCode);
+    [DllImport("user32.dll")] public static extern int PostMessageW(IntPtr hwnd, uint msg, nint wParam, nint lParam);
+    [DllImport("user32.dll")] public static extern nuint SetTimer(IntPtr hwnd, nuint id, uint milliseconds, IntPtr callback);
+    [DllImport("user32.dll")] public static extern int KillTimer(IntPtr hwnd, nuint id);
+
     // ---- gdi32 ----
     [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleDC(IntPtr dc);
     [DllImport("gdi32.dll")] public static extern int DeleteDC(IntPtr dc);
@@ -184,6 +206,20 @@ internal static unsafe class Win32
     // ---- uxtheme (undocumented, ordinal only): dark or light popup menus to match the theme ----
     [DllImport("uxtheme.dll", EntryPoint = "#135")] public static extern int SetPreferredAppMode(int mode);
     [DllImport("uxtheme.dll", EntryPoint = "#136")] public static extern void FlushMenuThemes();
+
+    /// <summary>Popup menus dark or light, to match the theme (process-wide; undocumented, so best effort).</summary>
+    public static void ThemeMenus(bool dark)
+    {
+        try
+        {
+            SetPreferredAppMode(dark ? 2 /* ForceDark */ : 3 /* ForceLight */);
+            FlushMenuThemes();
+        }
+        catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException)
+        {
+            // Older Windows: menus keep the system's look.
+        }
+    }
 
     // ---- gdiplus ----
     [StructLayout(LayoutKind.Sequential)]

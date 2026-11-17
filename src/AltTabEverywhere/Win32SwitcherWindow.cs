@@ -835,7 +835,7 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView, SwitcherAutoma
         bool minimized = window.IsMinimized || Native.IsIconic(window.Handle);
         if (minimized && !_minimizedPreviews) return;
         if (Native.DwmRegisterThumbnail(Handle, window.Handle, out var thumb) != 0) return;
-        if (minimized && (Native.DwmQueryThumbnailSourceSize(thumb, out var source) != 0 || SwitcherWindow.IsMinimizedCaption(source.cx, source.cy)))
+        if (minimized && (Native.DwmQueryThumbnailSourceSize(thumb, out var source) != 0 || TileLayout.IsMinimizedCaption(source.cx, source.cy)))
         {
             Native.DwmUnregisterThumbnail(thumb);
             return;
@@ -1247,19 +1247,6 @@ internal sealed unsafe class Win32SwitcherWindow : ISwitcherView, SwitcherAutoma
             DeleteObject(font);
             DeleteDC(dc);
             _setUp = true;
-        }
-    }
-
-    private static void ThemeMenus(bool dark)
-    {
-        try
-        {
-            SetPreferredAppMode(dark ? 2 /* ForceDark */ : 3 /* ForceLight */);
-            FlushMenuThemes();
-        }
-        catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException)
-        {
-            // Older Windows: the menu keeps the system's look.
         }
     }
 

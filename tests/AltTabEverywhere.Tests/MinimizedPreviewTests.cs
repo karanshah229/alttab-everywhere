@@ -9,7 +9,7 @@ public class MinimizedPreviewTests
     [InlineData(1920, 1080, false)]
     [InlineData(240, 300, false)]  // narrow but tall: a real (small) window
     public void Only_the_minimized_caption_counts_as_no_image(int width, int height, bool caption) =>
-        Assert.Equal(caption, SwitcherWindow.IsMinimizedCaption(width, height));
+        Assert.Equal(caption, TileLayout.IsMinimizedCaption(width, height));
 
     [Fact]
     public void Minimized_previews_are_on_by_default()

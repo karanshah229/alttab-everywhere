@@ -110,7 +110,7 @@ These make it safe to leave running all day, every day. None adds idle work.
 | # | Feature | Why / risk | Effort | Seen in |
 |---|---|---|---|---|
 | 34 | **Browser tabs as tiles** (Edge first) | Windows shows Edge tabs in Alt+Tab; Chrome needs an extension. Large and fragile | L | Windows |
-| 35 | 🚧 **A lighter UI layer**: plain Win32 (GDI, GDI+, DWM) in C#, NativeAOT optional. In progress: colours and icons are framework-free; a Win32 switcher, with tooltips and screen-reader support, is behind `experimentalWin32Switcher` (half the idle memory, twice as fast to open, same self-test). Next: a Win32 message loop and tray so WPF loads only for the settings window, then NativeAOT | Prototype: ~9 MB private and ~28 ms to open, vs ~40 MB and ~80 ms today | L | Ours |
+| 35 | 🚧 **A lighter UI layer**: plain Win32 (GDI, GDI+, DWM) in C#, NativeAOT optional. In progress: colours and icons are framework-free; a Win32 switcher, with tooltips and screen-reader support, is behind `experimentalWin32Switcher` (half the idle memory, twice as fast to open, same self-test). The app now runs on a plain Win32 message loop with a Shell_NotifyIcon tray: with the Win32 switcher no UI framework is loaded at all (~24 MB private). Next: NativeAOT build (the settings window moves to its own WPF exe), then the Win32 switcher becomes the only one | Prototype: ~9 MB private and ~28 ms to open, vs ~40 MB and ~80 ms today | L | Ours |
 | 37 | **Touchpad gesture** to open the switcher | Windows maps three-finger swipes to its own switcher; needs research | M | Windows, GNOME |
 | 38 | **Translations** | After the settings window exists | M | AltTab (macOS), GNOME, KDE |
 

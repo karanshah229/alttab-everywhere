@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
-using System.Windows.Threading;
 using AltTabEverywhere.Interop;
 
 namespace AltTabEverywhere;
@@ -33,7 +32,7 @@ internal sealed class KeyboardHook : IDisposable
     public readonly record struct Binding(ShortcutKeys Keys, bool StayOpen);
 
     private readonly Native.LowLevelKeyboardProc _proc; // kept in a field so the GC can't collect it
-    private readonly Dispatcher _dispatcher;
+    private readonly UiThread _thread;
     private readonly bool[] _swallowedDown = new bool[256]; // swallow the key-up of every key-down we swallowed
     private readonly byte[] _keyState = new byte[256];
     private readonly char[] _chars = new char[8];
@@ -89,7 +88,7 @@ internal sealed class KeyboardHook : IDisposable
     public KeyboardHook()
     {
         _proc = HookProc;
-        _dispatcher = Dispatcher.CurrentDispatcher;
+        _thread = UiThread.Current;
     }
 
     /// <summary>
@@ -368,7 +367,7 @@ internal sealed class KeyboardHook : IDisposable
 
     private static bool IsDown(int vk) => (Native.GetAsyncKeyState(vk) & 0x8000) != 0;
 
-    private void Post(Action action) => _dispatcher.BeginInvoke(action);
+    private void Post(Action action) => _thread.Post(action);
 
     public void Dispose()
     {

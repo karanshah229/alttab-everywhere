@@ -115,6 +115,9 @@ internal static class TileLayout
     }
 
     /// <summary>Whether the grid at this scale needs a scrollbar.</summary>
+    /// <summary>The size Windows gives a minimized window's own caption (about 160×28), as opposed to its last real image.</summary>
+    public static bool IsMinimizedCaption(int width, int height) => width <= 260 && height <= 60;
+
     public static bool NeedsScrolling(int count, int columns, double scale, double availHeight, Settings s) =>
         (count + columns - 1) / Math.Max(1, columns) * OuterHeight(s, scale) > availHeight;
 }

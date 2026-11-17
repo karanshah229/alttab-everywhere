@@ -1,6 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
-using System.Windows.Interop;
+using AltTabEverywhere.Interop;
 
 namespace AltTabEverywhere;
 
@@ -25,7 +25,7 @@ internal sealed class SystemMessageWindow : IDisposable
     private const int WTS_SESSION_UNLOCK = 0x8;
     private const int NOTIFY_FOR_THIS_SESSION = 0;
 
-    private readonly HwndSource _source;
+    private readonly HiddenWindow _window;
     private readonly int _taskbarCreated = RegisterWindowMessage("TaskbarCreated");
 
     /// <summary>The keyboard hook may have been dropped (resume, unlock, reconnect).</summary>
@@ -40,19 +40,14 @@ internal sealed class SystemMessageWindow : IDisposable
     {
         // A real (not message-only) top-level window: only those receive broadcasts such as
         // WM_POWERBROADCAST and WM_DISPLAYCHANGE. It is never shown.
-        var parameters = new HwndSourceParameters("AltTabEverywhere.SystemEvents")
-        {
-            WindowStyle = unchecked((int)0x80000000), // WS_POPUP
-            Width = 0,
-            Height = 0,
-        };
-        _source = new HwndSource(parameters);
-        _source.AddHook(WndProc);
-        WTSRegisterSessionNotification(_source.Handle, NOTIFY_FOR_THIS_SESSION);
+        _window = new HiddenWindow("AltTabEverywhere.SystemEvents", WndProc);
+        WTSRegisterSessionNotification(_window.Handle, NOTIFY_FOR_THIS_SESSION);
     }
 
-    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    private bool WndProc(uint message, nint wParam, nint lParam, out nint result)
     {
+        result = 0;
+        int msg = (int)message;
         switch (msg)
         {
             case WM_POWERBROADCAST when (int)wParam is PBT_APMRESUMESUSPEND or PBT_APMRESUMEAUTOMATIC:
@@ -76,14 +71,13 @@ internal sealed class SystemMessageWindow : IDisposable
                 if (msg == _taskbarCreated && _taskbarCreated != 0) ExplorerRestarted?.Invoke();
                 break;
         }
-        return IntPtr.Zero;
+        return false; // let Windows handle it too
     }
 
     public void Dispose()
     {
-        WTSUnRegisterSessionNotification(_source.Handle);
-        _source.RemoveHook(WndProc);
-        _source.Dispose();
+        WTSUnRegisterSessionNotification(_window.Handle);
+        _window.Dispose();
     }
 
     [DllImport("wtsapi32.dll", SetLastError = true)]

@@ -59,24 +59,6 @@ internal sealed class SettingsWindow : Window
     /// <summary>The settings.json keys this window edits (a test checks every setting is here).</summary>
     internal HashSet<string> EditableKeys { get; } = new();
 
-    /// <summary>
-    /// Opens the settings window in its own short-lived process (this exe with --settings). The
-    /// switcher process never loads the window's controls, styles or code, so closing the window
-    /// gives everything back (in-process, about 22 MB of private memory stayed behind).
-    /// </summary>
-    public static void Launch()
-    {
-        try
-        {
-            string exe = Environment.ProcessPath ?? throw new InvalidOperationException("no process path");
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, "--settings") { UseShellExecute = false });
-        }
-        catch (Exception ex)
-        {
-            Log.Error("open settings window", ex);
-        }
-    }
-
     /// <summary>Brings an already open settings window to the front. False if there is none.</summary>
     public static bool ActivateExisting()
     {

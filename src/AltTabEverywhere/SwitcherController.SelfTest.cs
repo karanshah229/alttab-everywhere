@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Threading;
 using AltTabEverywhere.Interop;
 
 namespace AltTabEverywhere;
@@ -497,15 +495,10 @@ internal sealed partial class SwitcherController
             // always on top keeps the switcher above it, minimize toggles without switching, and
             // the maximize decision and change work.
             {
-                var target = new Window
-                {
-                    Title = "AltTab Everywhere actions test", Width = 420, Height = 280, ShowActivated = false,
-                    ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = 60, Top = 60,
-                };
+                var target = TestWindow("AltTab Everywhere actions test", 60, 60);
                 try
                 {
-                    target.Show();
-                    IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(target).Handle;
+                    IntPtr hwnd = target.Handle;
                     var info = new WindowInfo(hwnd, "actions test", null, Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST), false, null);
                     _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
                     _settingsOverride.ShowDesktopTile = false;
@@ -574,32 +567,27 @@ internal sealed partial class SwitcherController
                     if (!WindowActions.ShouldMaximize(hwnd)) Fail("maximize: a normal window should be maximized");
                     WindowActions.SetMaximized(hwnd, true);
                     await Settle();
-                    if (target.WindowState != WindowState.Maximized) Fail("maximize: not maximized");
+                    if (!IsZoomed(hwnd)) Fail("maximize: not maximized");
                     if (WindowActions.ShouldMaximize(hwnd)) Fail("maximize: a maximized window should be restored next");
                     WindowActions.SetMaximized(hwnd, false);
                     await Settle();
                     checks++;
-                    if (target.WindowState != WindowState.Normal) Fail("maximize: not restored");
+                    if (IsZoomed(hwnd) || Native.IsIconic(hwnd)) Fail("maximize: not restored");
                 }
                 finally
                 {
                     if (_active) End();
-                    target.Close();
+                    target.Dispose();
                 }
             }
 
             // Picking a minimized window (plain Alt+Tab, no move) restores it on the monitor it was
             // minimized on, whichever monitor the switcher is driven from.
             {
-                var probe = new Window
-                {
-                    Title = "AltTab Everywhere restore test", Width = 420, Height = 280, ShowActivated = false,
-                    ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual,
-                };
+                var probe = TestWindow("AltTab Everywhere restore test", 0, 0);
                 try
                 {
-                    probe.Show();
-                    IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(probe).Handle;
+                    IntPtr hwnd = probe.Handle;
                     foreach (var home in Monitors.GetAll())
                     foreach (bool maximized in new[] { false, true })
                     {
@@ -633,7 +621,7 @@ internal sealed partial class SwitcherController
                 finally
                 {
                     if (_active) End();
-                    probe.Close();
+                    probe.Dispose();
                 }
             }
 
@@ -644,15 +632,10 @@ internal sealed partial class SwitcherController
             if (monitors.Count < 2) Log.Info("selftest: move here skipped (one monitor)");
             else
             {
-                var probe = new Window
-                {
-                    Title = "AltTab Everywhere move test", Width = 420, Height = 280, ShowActivated = false,
-                    ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual,
-                };
+                var probe = TestWindow("AltTab Everywhere move test", 0, 0);
                 try
                 {
-                    probe.Show();
-                    IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(probe).Handle;
+                    IntPtr hwnd = probe.Handle;
                     foreach (var from in monitors)
                     foreach (var to in monitors.Where(m => m != from))
                     foreach (string state in new[] { "normal", "maximized", "minimized" })
@@ -671,7 +654,7 @@ internal sealed partial class SwitcherController
                         IntPtr landed = Native.MonitorFromWindow(hwnd, Native.MONITOR_DEFAULTTONEAREST);
                         checks += 3;
                         if (!moved || landed != to.Handle) Fail($"{tag}: ended on another monitor (moved={moved})");
-                        if (state == "maximized" != probe.WindowState.Equals(WindowState.Maximized)) Fail($"{tag}: state is {probe.WindowState}");
+                        if (state == "maximized" != IsZoomed(hwnd)) Fail($"{tag}: {(IsZoomed(hwnd) ? "maximized" : "not maximized")}");
                         // Maximized windows hang a few invisible pixels outside the work area; allow for it.
                         var area = to.WorkArea;
                         int slack = state == "maximized" ? 16 : 0;
@@ -681,7 +664,7 @@ internal sealed partial class SwitcherController
                 }
                 finally
                 {
-                    probe.Close();
+                    probe.Dispose();
                 }
             }
 
@@ -751,6 +734,19 @@ internal sealed partial class SwitcherController
         Log.Info($"selftest ({engine} switcher): {checks} checks, {failures} failures");
         done(failures == 0);
     }
+
+    /// <summary>A throwaway top-level window of our own (the user's windows are never touched), shown without focus.</summary>
+    private static HiddenWindow TestWindow(string title, int x, int y)
+    {
+        var window = new HiddenWindow(title, static (uint _, nint _, nint _, out nint result) => { result = 0; return false; },
+            Interop.Win32.WS_OVERLAPPEDWINDOW, x, y, 420, 280);
+        Native.ShowWindow(window.Handle, 4 /* SW_SHOWNOACTIVATE */);
+        return window;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool IsZoomed(IntPtr hwnd);
 
     /// <summary>A shared plan over every monitor for synthetic tiles (self-test).</summary>
     /// <summary>--selftest: synthetic tiles that PlanSession uses instead of the real windows (so stacks can be opened).</summary>
@@ -851,6 +847,9 @@ internal sealed partial class SwitcherController
             // The trimmer fires 2 s after the last session closed: this is the steady idle state.
             await Task.Delay(3000);
             LogResources("measure: idle after trim");
+            var ui = AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetName().Name ?? "")
+                .Where(n => n is "PresentationFramework" or "PresentationCore" or "WindowsBase" or "System.Windows.Forms" or "System.Drawing.Common").ToList();
+            Log.Info($"measure: UI frameworks loaded: {(ui.Count == 0 ? "none" : string.Join(", ", ui))}");
         }
         catch (Exception ex)
         {
@@ -900,7 +899,7 @@ internal sealed partial class SwitcherController
     {
         // Let the overlays finish layout, DPI changes and repositioning before reading tile positions.
         await Task.Delay(250);
-        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        await UiThread.Current.YieldIdle();
     }
 
     private static IEnumerable<(string Name, Action<SwitcherController> Move, Func<IReadOnlyList<RectD>, int, int> Expected)> Directions()

@@ -4,7 +4,6 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
-using System.Windows.Threading;
 
 namespace AltTabEverywhere;
 
@@ -25,8 +24,8 @@ internal sealed class SettingsStore : IDisposable
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    private readonly Dispatcher _dispatcher;
-    private readonly DispatcherTimer _debounce;
+    private readonly UiThread _thread;
+    private readonly UiTimer _debounce;
     private FileSystemWatcher? _watcher;
 
     public static string Directory { get; } =
@@ -41,9 +40,9 @@ internal sealed class SettingsStore : IDisposable
 
     public SettingsStore()
     {
-        _dispatcher = Dispatcher.CurrentDispatcher;
+        _thread = UiThread.Current;
         // Editors often write a file in several steps; wait for them to finish.
-        _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _debounce = new UiTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _debounce.Tick += (_, _) =>
         {
             _debounce.Stop();
@@ -155,10 +154,10 @@ internal sealed class SettingsStore : IDisposable
         {
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
         };
-        FileSystemEventHandler onChange = (_, _) => _dispatcher.BeginInvoke(RestartDebounce);
+        FileSystemEventHandler onChange = (_, _) => _thread.Post(RestartDebounce);
         _watcher.Changed += onChange;
         _watcher.Created += onChange;
-        _watcher.Renamed += (_, _) => _dispatcher.BeginInvoke(RestartDebounce);
+        _watcher.Renamed += (_, _) => _thread.Post(RestartDebounce);
         _watcher.EnableRaisingEvents = true;
     }
 

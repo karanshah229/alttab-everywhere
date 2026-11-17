@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Windows.Threading;
 using AltTabEverywhere.Interop;
 
 namespace AltTabEverywhere;
@@ -20,12 +19,12 @@ internal sealed partial class SwitcherController : IDisposable
 {
     private readonly SettingsStore _store;
     private readonly KeyboardHook _hook = new();
-    private readonly DispatcherTimer _showTimer;
-    private readonly DispatcherTimer _stackTimer; // resting on a stack opens it; on Back, goes back
-    private readonly DispatcherTimer _displayChangeTimer;
-    private readonly DispatcherTimer _peekTimer; // peekDelayMs: resting on a tile this long shows its peek
+    private readonly UiTimer _showTimer;
+    private readonly UiTimer _stackTimer; // resting on a stack opens it; on Back, goes back
+    private readonly UiTimer _displayChangeTimer;
+    private readonly UiTimer _peekTimer; // peekDelayMs: resting on a tile this long shows its peek
     private readonly MemoryTrimmer _trimmer = new(TimeSpan.FromSeconds(2));
-    private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
+    private readonly UiThread _thread = UiThread.Current;
     private readonly List<OverlayHost> _overlays = new();
     /// <summary>Self-test: which switcher to build, whatever the settings say (null: the setting).</summary>
     private bool? _win32ForTest;
@@ -68,13 +67,13 @@ internal sealed partial class SwitcherController : IDisposable
     public SwitcherController(SettingsStore store)
     {
         _store = store;
-        _showTimer = new DispatcherTimer();
+        _showTimer = new UiTimer();
         _showTimer.Tick += (_, _) => RevealUi();
-        _stackTimer = new DispatcherTimer();
+        _stackTimer = new UiTimer();
         _stackTimer.Tick += (_, _) => OnStackTimer();
-        _peekTimer = new DispatcherTimer();
+        _peekTimer = new UiTimer();
         _peekTimer.Tick += (_, _) => { _peekTimer.Stop(); ShowPeek(); };
-        _displayChangeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _displayChangeTimer = new UiTimer { Interval = TimeSpan.FromSeconds(2) };
         _displayChangeTimer.Tick += (_, _) =>
         {
             _displayChangeTimer.Stop();
@@ -585,7 +584,7 @@ internal sealed partial class SwitcherController : IDisposable
         if (_focusOverlay is not null) WindowActivator.Activate(_focusOverlay.Handle);
         _timing?.Mark("activated");
         // After taking focus, so the outline never delays the switcher itself.
-        _dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(UpdatePeek));
+        _thread.Post(UpdatePeek);
     }
 
     private async Task WaitUntilShown(int timeoutMs = 3000)
@@ -611,7 +610,7 @@ internal sealed partial class SwitcherController : IDisposable
         DiscardOverlays();
         foreach (var monitor in monitors)
         {
-            var overlay = new OverlayHost(monitor, _dispatcher, win32);
+            var overlay = new OverlayHost(monitor, _thread, win32);
             overlay.TileClicked += index => OnTileClicked(overlay, index);
             overlay.TileCloseRequested += index => OnTileCloseRequested(overlay, index);
             overlay.TileHovered += index => OnTileHovered(overlay, index);
@@ -734,13 +733,13 @@ internal sealed partial class SwitcherController : IDisposable
     {
         // Deferred: focus may be moving to another of our overlays (a click on another monitor),
         // or we may be mid-Commit, which deactivates the overlay on purpose.
-        _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        _thread.PostIdle(() =>
         {
             if (!_active || !_uiShown || _traceEnds) return; // (the self-test must not be ended by the user's clicks)
             Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out uint pid);
             if (pid == (uint)Environment.ProcessId) return;
             End();
-        }));
+        });
     }
 
     private void Move(int delta) => Select(GridNavigation.Step(_selected, delta, _items.Count));
