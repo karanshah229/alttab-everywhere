@@ -111,12 +111,12 @@ These make it safe to leave running all day, every day. None adds idle work.
 |---|---|---|---|---|
 | 34 | **Browser tabs as tiles** (Edge first) | Windows shows Edge tabs in Alt+Tab; Chrome needs an extension. Large and fragile | L | Windows |
 | 35 | **A lighter UI layer** (plain Win32/Direct2D or Rust) | Could take private memory under ~10 MB and opening under ~50 ms. Partial rewrite: only if WPF's limits bite | L | Ours |
-| 36 | **Drop a file on a tile** to open it in that app | macOS Cmd+Tab accepts dropped files | M | macOS |
 | 37 | **Touchpad gesture** to open the switcher | Windows maps three-finger swipes to its own switcher; needs research | M | Windows, GNOME |
 | 38 | **Translations** | After the settings window exists | M | AltTab (macOS), GNOME, KDE |
 
 ## Won't do
 
+- **Drop a file on a tile to open it in that app** (was #36). Built and removed: with the admin-window install the app runs above Explorer's integrity level, where Windows blocks dropping files into it, and it wasn't wanted.
 - **Telemetry or analytics.** Nothing leaves the machine.
 - **Background polling, periodic refresh, or animations on by default.** They break the resource budget.
 - **Cloud sync of settings.** The JSON file can be copied.
