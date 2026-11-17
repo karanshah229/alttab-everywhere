@@ -4,7 +4,7 @@ An Alt+Tab switcher for Windows 11 that appears on **every monitor at once**. Wi
 
 ![The switcher showing on two monitors at once: a laptop screen and an external monitor](docs/images/monitors.png)
 
-> Status: **early (v0.5)**. Works day to day. Settings can be changed in a settings window or in a JSON file.
+> Status: **early (v0.6)**. Works day to day. Settings can be changed in a settings window or in a JSON file.
 
 Three rules guide every feature:
 1. **Lowest resource use possible.** When idle it does no work (0 ms of CPU) and uses about 10–16 MB working set (about 40–50 MB private). The switcher appears about 110–130 ms after Alt+Tab. See [Resource use](#resource-use).
