@@ -31,8 +31,26 @@ internal static class Program
             return 0;
         }
 
-        using var mutex = new Mutex(true, demo ? "AltTabEverywhere.Demo" : "AltTabEverywhere.SingleInstance", out bool isFirstInstance);
-        if (!isFirstInstance) return 0;
+        Mutex mutex;
+        bool isFirstInstance;
+        try
+        {
+            mutex = new Mutex(true, demo ? "AltTabEverywhere.Demo" : "AltTabEverywhere.SingleInstance", out isFirstInstance);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            mutex = null!; // held by a copy running with other rights: it's running all the same
+            isFirstInstance = false;
+        }
+        if (!isFirstInstance)
+        {
+            // Started again (from the Start menu, say) while it's running: show its settings, so
+            // opening the app always shows something.
+            if (!demo) SettingsLauncher.Launch();
+            mutex?.Dispose();
+            return 0;
+        }
+        using var ownMutex = mutex;
 
         // A plain Win32 message loop on this thread; work, timers and awaits all run through it.
         var ui = UiThread.Current;

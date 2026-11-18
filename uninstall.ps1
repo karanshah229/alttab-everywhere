@@ -43,6 +43,10 @@ if ($entry -and ($entry -like "*$userDir*" -or $entry -like "*$adminDir*")) {
     Remove-ItemProperty $run -Name AltTabEverywhere
 }
 
+# The Start menu entry install.ps1 made.
+$shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "$appName.lnk"
+if (Test-Path $shortcut) { Remove-Item $shortcut }
+
 if (Test-Path $userDir) { Remove-Item -Recurse -Force $userDir }
 
 if ((Test-Path $adminDir) -or (Our-Certificates)) {

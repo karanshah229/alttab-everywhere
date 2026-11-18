@@ -152,6 +152,16 @@ finally {
 
 # Started as you, not as administrator. If "Start with Windows" is on, the app points it here itself.
 $exe = Join-Path $target "AltTabEverywhere.exe"
+
+# A Start menu entry (yours only), so Start, search and launchers find it. Opening it while the
+# app is running shows its settings.
+$shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "$appName.lnk"
+$link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
+$link.TargetPath = $exe
+$link.WorkingDirectory = $target
+$link.Description = "Alt+Tab on every monitor. Opening it while it's running shows its settings."
+$link.Save()
+
 Start-Process $exe
 Write-Host ""
 Write-Host "AltTab Everywhere is installed in $target and running (see the notification area)."
