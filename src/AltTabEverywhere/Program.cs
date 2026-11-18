@@ -29,11 +29,12 @@ internal static class Program
         // (--hardware-rendering exists only to compare the two with --measure.)
         WpfHardwareRendering = args.Contains("--hardware-rendering", StringComparer.OrdinalIgnoreCase);
 
-        // The settings window runs in its own process, which exits when the window closes, so
-        // the always-on switcher never holds its memory. The switcher picks up each change from
-        // settings.json.
+        // --settings (older shortcuts): the settings window is its own exe now.
         if (args.Contains("--settings", StringComparer.OrdinalIgnoreCase))
-            return RunSettingsWindow();
+        {
+            SettingsLauncher.Launch();
+            return 0;
+        }
 
         using var mutex = new Mutex(true, demo ? "AltTabEverywhere.Demo" : "AltTabEverywhere.SingleInstance", out bool isFirstInstance);
         if (!isFirstInstance) return 0;
@@ -147,31 +148,4 @@ internal static class Program
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern unsafe int MessageBoxW(IntPtr owner, char* text, char* caption, uint type);
-
-    private static int RunSettingsWindow()
-    {
-        using var mutex = new Mutex(true, "AltTabEverywhere.Settings", out bool isFirstInstance);
-        if (!isFirstInstance)
-        {
-            SettingsWindow.ActivateExisting(); // already open: bring it to the front
-            return 0;
-        }
-
-        UseWpfSoftwareRendering();
-        var app = new System.Windows.Application { ShutdownMode = System.Windows.ShutdownMode.OnMainWindowClose };
-        app.DispatcherUnhandledException += (_, e) =>
-        {
-            Log.Error("settings window", e.Exception);
-            e.Handled = true;
-        };
-        app.Startup += (_, _) =>
-        {
-            System.IO.Directory.CreateDirectory(SettingsStore.Directory);
-            var window = new SettingsWindow(SettingsStore.LoadOnce());
-            app.MainWindow = window;
-            window.Show();
-            window.Activate();
-        };
-        return app.Run();
-    }
 }

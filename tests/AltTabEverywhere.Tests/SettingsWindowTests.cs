@@ -1,3 +1,4 @@
+extern alias settingsapp;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
@@ -24,7 +25,7 @@ public class SettingsWindowTests
         {
             try
             {
-                var window = new SettingsWindow(new Settings().Normalized());
+                var window = new settingsapp::AltTabEverywhere.SettingsWindow(new settingsapp::AltTabEverywhere.Settings().Normalized());
                 windowKeys = window.EditableKeys;
                 window.Close();
             }

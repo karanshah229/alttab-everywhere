@@ -4,21 +4,6 @@ using System.Linq;
 
 namespace AltTabEverywhere;
 
-/// <summary>How tiles are ordered (sortOrder).</summary>
-internal enum SortOrder
-{
-    /// <summary>Most recently used first, like Windows (the default).</summary>
-    Recent,
-    /// <summary>Front to back, as the windows are stacked on screen.</summary>
-    Stacking,
-    /// <summary>By app name, then most recent first within each app.</summary>
-    App,
-    /// <summary>By window title, A to Z.</summary>
-    Title,
-    /// <summary>By monitor (left to right, then top to bottom), then most recent first: one section per screen.</summary>
-    Monitor,
-}
-
 /// <summary>Orders the session's windows and picks where the selection starts. Pure: lookups are passed in.</summary>
 internal static class WindowOrder
 {

@@ -175,7 +175,7 @@ internal sealed unsafe class TrayIcon : IDisposable
                 SettingsStore.SetValue("startWithWindows", !_settings.Current.StartWithWindows);
                 break;
             case Command.EditSettings:
-                OpenSettingsFile();
+                SettingsStore.OpenInEditor();
                 break;
             case Command.OpenLog:
                 Directory.CreateDirectory(Log.Directory);
@@ -206,19 +206,6 @@ internal sealed unsafe class TrayIcon : IDisposable
                 if (ExtractIconExW(path, 0, null, &small, 1) > 0 && small != IntPtr.Zero) return small;
         }
         return LoadIconW(IntPtr.Zero, 32512); // IDI_APPLICATION
-    }
-
-    /// <summary>Opens settings.json in the default .json editor, or Notepad if none is associated.</summary>
-    internal static void OpenSettingsFile()
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo(SettingsStore.FilePath) { UseShellExecute = true });
-        }
-        catch (Exception)
-        {
-            Process.Start(new ProcessStartInfo("notepad.exe", $"\"{SettingsStore.FilePath}\"") { UseShellExecute = true });
-        }
     }
 
     public void Dispose()

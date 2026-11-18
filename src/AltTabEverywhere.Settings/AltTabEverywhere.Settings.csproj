@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The settings window: a WPF app of its own, started by the switcher when you open settings and
+    gone when you close it, so the always-on switcher never loads WPF. It reads and writes the same
+    settings.json; the switcher picks up each change.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- The colour picker (ColorDialog). -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\AltTabEverywhere\Assets\app.ico</ApplicationIcon>
+    <RootNamespace>AltTabEverywhere</RootNamespace>
+    <AssemblyName>AltTabEverywhere.Settings</AssemblyName>
+    <!-- Next to the switcher's exe, which starts it from its own folder. -->
+    <OutputPath>..\AltTabEverywhere\bin\$(Configuration)\</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AltTabEverywhere.Tests" />
+    <EmbeddedResource Include="..\AltTabEverywhere\Assets\app.ico" LogicalName="AltTabEverywhere.app.ico" />
+  </ItemGroup>
+
+  <!-- The settings model, file and theme: the same source as the switcher's. -->
+  <ItemGroup>
+    <Compile Include="..\AltTabEverywhere\Argb.cs" Link="Shared\Argb.cs" />
+    <Compile Include="..\AltTabEverywhere\Log.cs" Link="Shared\Log.cs" />
+    <Compile Include="..\AltTabEverywhere\Monitors.cs" Link="Shared\Monitors.cs" />
+    <Compile Include="..\AltTabEverywhere\Interop\Native.cs" Link="Shared\Native.cs" />
+    <Compile Include="..\AltTabEverywhere\Settings.cs" Link="Shared\Settings.cs" />
+    <Compile Include="..\AltTabEverywhere\SettingsFile.cs" Link="Shared\SettingsFile.cs" />
+    <Compile Include="..\AltTabEverywhere\ShortcutKeys.cs" Link="Shared\ShortcutKeys.cs" />
+    <Compile Include="..\AltTabEverywhere\Theme.cs" Link="Shared\Theme.cs" />
+    <Compile Include="..\AltTabEverywhere\WpfTheme.cs" Link="Shared\WpfTheme.cs" />
+  </ItemGroup>
+
+</Project>

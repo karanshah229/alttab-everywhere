@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/AltTabEverywhere/AltTabEverywhere.csproj" />
+    <Project Path="src/AltTabEverywhere.Settings/AltTabEverywhere.Settings.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AltTabEverywhere.Tests/AltTabEverywhere.Tests.csproj" />

@@ -17,6 +17,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AltTabEverywhere\AltTabEverywhere.csproj" />
+    <!-- The settings window's exe compiles its own copy of the shared types: an alias keeps the two apart. -->
+    <ProjectReference Include="..\..\src\AltTabEverywhere.Settings\AltTabEverywhere.Settings.csproj" Aliases="settingsapp" />
   </ItemGroup>
 
   <ItemGroup>

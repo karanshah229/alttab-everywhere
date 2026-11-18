@@ -22,6 +22,7 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "../..")
 $project = Join-Path $root "src/AltTabEverywhere/AltTabEverywhere.csproj"
+$settingsProject = Join-Path $root "src/AltTabEverywhere.Settings/AltTabEverywhere.Settings.csproj"
 New-Item -ItemType Directory -Force $Output | Out-Null
 $Output = Resolve-Path $Output
 $staging = Join-Path $Output "staging"
@@ -42,6 +43,10 @@ foreach ($v in $variants) {
     else { $publish += @("--self-contained", "false") }
     & dotnet @publish
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $name" }
+    # The settings window: a WPF exe of its own, next to the switcher, packaged the same way.
+    $settings = @("publish", $settingsProject) + $publish[2..($publish.Count - 1)]
+    & dotnet @settings
+    if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $name (settings window)" }
     Copy-Item (Join-Path $root "LICENSE") $dir
     $zip = Join-Path $Output "$name.zip"
     if (Test-Path $zip) { Remove-Item $zip }

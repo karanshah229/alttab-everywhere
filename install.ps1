@@ -93,10 +93,14 @@ if ($AdminWindows) { $publish += "-p:UiAccess=true" }
 Write-Host "Building ($rid$(if ($AdminWindows) { ', uiAccess' }))..."
 & dotnet @publish | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "The build failed. Run 'dotnet build' to see why." }
+# The settings window: a WPF exe of its own, next to the switcher, started only while you use it.
+& dotnet publish (Join-Path $root "src/AltTabEverywhere.Settings/AltTabEverywhere.Settings.csproj") -c Release -r $rid `
+    --self-contained false -p:DebugType=none -o $staging | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "The settings window's build failed. Run 'dotnet build' to see why." }
 Copy-Item (Join-Path $root "LICENSE") $staging
 
 # The running copy (wherever it was started from) locks its files and would keep running the old build.
-Get-Process AltTabEverywhere -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process AltTabEverywhere, AltTabEverywhere.Settings -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 500
 
 try {

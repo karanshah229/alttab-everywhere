@@ -4,11 +4,6 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <!-- Only used for the tray icon (NotifyIcon) and System.Drawing icon extraction. -->
-    <UseWindowsForms>true</UseWindowsForms>
-    <!-- WPF + WinForms implicit usings collide (Application, Image, ...), so usings are explicit. -->
-    <ImplicitUsings>disable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <!-- The Win32 switcher passes pointers to Windows (no marshalling, NativeAOT-friendly). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -20,16 +15,8 @@
     <IntermediateOutputPath Condition="'$(UiAccess)' == 'true'">obj\uiaccess\$(Configuration)\</IntermediateOutputPath>
     <!-- Drawn by tools/IconGen. -->
     <ApplicationIcon>Assets/app.ico</ApplicationIcon>
-    <!-- WFO0003 wants DPI set via the WinForms API; the UI is WPF, so the manifest is the right place. -->
-    <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <RootNamespace>AltTabEverywhere</RootNamespace>
     <AssemblyName>AltTabEverywhere</AssemblyName>
-    <Version>0.6.0</Version>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Copyright>Copyright (c) 2026 the AltTab Everywhere contributors</Copyright>
-    <!-- Always-on app: no background GC thread, and keep the heap small. -->
-    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
-    <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>

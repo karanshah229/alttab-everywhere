@@ -162,7 +162,7 @@ internal sealed class SettingsWindow : Window
             if (_tabs.SelectedIndex >= 0 && _tabs.SelectedIndex < _tabKeys.Count) Reset(_tabKeys[_tabs.SelectedIndex]);
         };
         var openFile = new Button { Content = "Open settings.json", VerticalAlignment = VerticalAlignment.Center };
-        openFile.Click += (_, _) => TrayIcon.OpenSettingsFile();
+        openFile.Click += (_, _) => SettingsStore.OpenInEditor();
 
         var footer = new Grid { Margin = new Thickness(24, 10, 24, 14) };
         footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });

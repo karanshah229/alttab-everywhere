@@ -33,7 +33,7 @@ if ($Elevated) {
     exit 0
 }
 
-Get-Process AltTabEverywhere -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process AltTabEverywhere, AltTabEverywhere.Settings -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 500
 
 # Start with Windows: only our entry, and only if it points at an installed copy.

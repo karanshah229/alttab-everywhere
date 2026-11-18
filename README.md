@@ -63,6 +63,8 @@ Requires the .NET 10 SDK on Windows 10 or 11.
 dotnet run --project src/AltTabEverywhere
 ```
 
+`dotnet build` first (at the top folder) also builds the settings window, `AltTabEverywhere.Settings.exe`, next to the switcher, so the tray's **Settings…** opens it.
+
 The app runs in the notification area, with no main window. Right-click its tray icon to:
 - **pause** it (untick **Enabled**);
 - turn **Start with Windows** on or off. This uses a per-user startup entry and needs no admin rights; it also shows in Windows Settings > Apps > Startup;
@@ -122,7 +124,7 @@ The switcher takes at most 75% of a monitor's width and 75% of its height. With 
 
 ## Settings
 
-Double-click the tray icon, or right-click it and choose **Settings…**, to open the settings window. Every setting below is there, in tabs (Shortcuts, Behaviour, Filters, Navigation, Closing, Appearance, System), and each change is saved and applied straight away. The Behaviour tab holds the defaults every shortcut uses; a shortcut's **More options** can override them for that shortcut alone. **Reset tab to defaults**, next to **Open settings.json**, resets the settings on the open tab. Colours can be typed as `#RRGGBB` or picked from a palette (with **More colours…** for any colour). The window uses the switcher's own colours: its theme, background, text colour and accent. It runs as its own short-lived process (`AltTabEverywhere.exe --settings`, which you can also pin as a shortcut), so the always-on switcher never holds its memory: closing the window frees all of it. Opening it takes about 1.5 seconds.
+Double-click the tray icon, or right-click it and choose **Settings…**, to open the settings window. Every setting below is there, in tabs (Shortcuts, Behaviour, Filters, Navigation, Closing, Appearance, System), and each change is saved and applied straight away. The Behaviour tab holds the defaults every shortcut uses; a shortcut's **More options** can override them for that shortcut alone. **Reset tab to defaults**, next to **Open settings.json**, resets the settings on the open tab. Colours can be typed as `#RRGGBB` or picked from a palette (with **More colours…** for any colour). The window uses the switcher's own colours: its theme, background, text colour and accent. It is its own small app, `AltTabEverywhere.Settings.exe` next to the switcher (you can pin it as a shortcut), so the always-on switcher never loads it or holds its memory: closing the window frees all of it. Opening it takes about 1.5 seconds.
 
 Settings live in `%APPDATA%\AltTabEverywhere\settings.json`, created with defaults on first run. To edit the file by hand, choose **Edit settings file…** in the tray menu. Changes apply as soon as you save. If the file has a mistake, the switcher keeps your previous settings and writes the error to the log. Comments and trailing commas are allowed. The settings window and the tray toggles change one key at a time and keep every other key as you wrote it, but not comments.
 
