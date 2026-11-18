@@ -3,16 +3,20 @@
   Builds the release zips, their SHA-256 checksums and the winget manifests.
 
 .DESCRIPTION
-  Four zips per version:
+  Four zips per version, each with the switcher (AltTabEverywhere.exe) and the settings window
+  (AltTabEverywhere.Settings.exe):
     AltTabEverywhere-<v>-win-x64.zip / -win-arm64.zip
-        Framework-dependent: small, shares the .NET 10 Desktop Runtime with other apps (lightest).
+        The settings window uses the .NET 10 Desktop Runtime, shared with other apps (smallest).
     AltTabEverywhere-<v>-win-x64-selfcontained.zip / -win-arm64-selfcontained.zip
-        One exe with the runtime inside, for PCs without .NET 10.
-  ReadyToRun is deliberately off: measured, it didn't open the switcher faster (WPF itself is
-  already precompiled) and made the download bigger.
+        The settings window carries the runtime inside it, for PCs without .NET 10.
+  The switcher is native code (NativeAOT) in all four: no .NET runtime, the least memory. That needs
+  Visual Studio's C++ build tools for the architecture; without them it falls back to a .NET build
+  (framework-dependent, or single-file self-contained) and says so.
+  ReadyToRun is deliberately off: measured, it didn't open the switcher faster and made the
+  download bigger.
 
 .EXAMPLE
-  ./tools/release/build-release.ps1 -Version 0.6.0 -Output artifacts
+  ./tools/release/build-release.ps1 -Version 0.7.0 -Output artifacts
 #>
 param(
     [Parameter(Mandatory)] [string] $Version,
@@ -34,19 +38,38 @@ $variants = @(
     @{ Rid = "win-arm64"; SelfContained = $true;  Suffix = "-selfcontained" }
 )
 
+# NativeAOT needs the C++ linker for each target architecture, found through vswhere.
+$installer = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer"
+$vswhere = Join-Path $installer "vswhere.exe"
+if ($env:PATH -notlike "*$installer*") { $env:PATH += ";$installer" } # the AOT build looks for vswhere on PATH
+function CanAot($rid) {
+    $component = if ($rid -eq "win-arm64") { "Microsoft.VisualStudio.Component.VC.Tools.ARM64" } else { "Microsoft.VisualStudio.Component.VC.Tools.x86.x64" }
+    (Test-Path $vswhere) -and [bool](& $vswhere -products * -requires $component -property installationPath)
+}
+
 $zips = @()
 foreach ($v in $variants) {
     $name = "AltTabEverywhere-$Version-$($v.Rid)$($v.Suffix)"
     $dir = Join-Path $staging $name
-    $publish = @("publish", $project, "-c", "Release", "-r", $v.Rid, "-o", $dir, "-p:Version=$Version", "-p:DebugType=none")
-    if ($v.SelfContained) { $publish += @("--self-contained", "true", "-p:PublishSingleFile=true", "-p:IncludeNativeLibrariesForSelfExtract=true") }
-    else { $publish += @("--self-contained", "false") }
-    & dotnet @publish
+    $common = @("-c", "Release", "-r", $v.Rid, "-o", $dir, "-p:Version=$Version", "-p:DebugType=none")
+    $runtime = if ($v.SelfContained) { @("--self-contained", "true", "-p:PublishSingleFile=true", "-p:IncludeNativeLibrariesForSelfExtract=true") }
+               else { @("--self-contained", "false") }
+
+    # The switcher.
+    $switcher = @("publish", $project) + $common
+    if (CanAot $v.Rid) { $switcher += "-p:PublishAot=true" }
+    else {
+        Write-Warning "$name`: no C++ build tools for $($v.Rid), so the switcher is a .NET build"
+        $switcher += $runtime
+    }
+    & dotnet @switcher
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $name" }
-    # The settings window: a WPF exe of its own, next to the switcher, packaged the same way.
-    $settings = @("publish", $settingsProject) + $publish[2..($publish.Count - 1)]
-    & dotnet @settings
+
+    # The settings window: a WPF exe of its own, next to the switcher.
+    & dotnet publish $settingsProject @common @runtime
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $name (settings window)" }
+
+    Remove-Item (Join-Path $dir "*.pdb") -ErrorAction SilentlyContinue # debug symbols (NativeAOT writes them anyway)
     Copy-Item (Join-Path $root "LICENSE") $dir
     $zip = Join-Path $Output "$name.zip"
     if (Test-Path $zip) { Remove-Item $zip }

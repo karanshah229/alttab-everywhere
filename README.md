@@ -31,7 +31,7 @@ cd alttab-everywhere
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-It builds the app and installs it for you in `%LOCALAPPDATA%\Programs\AltTab Everywhere`, with no admin rights, then starts it. Turn on **Start with Windows** from its tray icon to keep it running. Run it again after `git pull` to update; your settings are kept.
+It builds the app and installs it for you in `%LOCALAPPDATA%\Programs\AltTab Everywhere`, with no admin rights, then starts it. If Visual Studio's C++ build tools are installed ("Desktop development with C++", or the free Build Tools for Visual Studio), the switcher is compiled to native code (NativeAOT): about 11 MB of memory and no .NET runtime to load. Without them it's a normal .NET build (about 18 MB); `-NoNativeAot` asks for that anyway. Turn on **Start with Windows** from its tray icon to keep it running. Run it again after `git pull` to update; your settings are kept.
 
 **Working over administrator windows too.** While a window running as administrator (an admin terminal, say) has focus, Windows keeps the keyboard from every app that isn't elevated, so its own Alt+Tab appears. Windows lets a switcher past that only if it is signed and installed under Program Files. Instead of buying a certificate, this signs it on your own PC:
 
@@ -276,18 +276,19 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 
 ## Resource use
 
-The app is always running, so idle cost matters more than anything else. Measured on Windows 11 (build 26200) with two monitors, Release build:
+The app is always running, so idle cost matters more than anything else. Measured on Windows 11 (build 26200) with two monitors, the native (NativeAOT) build that `install.ps1` and the releases make:
 
 | State | Working set | Private | Idle CPU |
 |---|---|---|---|
-| Fresh start (after warm-up and trim) | 15–16 MB | 41 MB | 0 ms per minute |
-| Idle after 50 switcher opens | 3–12 MB | 52 MB | 0 ms per minute |
+| Fresh start (after warm-up and trim) | 0.4–1 MB | 11 MB | 0 ms per minute |
+| Idle after 50 switcher opens | 2 MB (11 MB right after the last close) | 13 MB | 0 ms per minute |
+| The same, as a normal .NET build (`install.ps1 -NoNativeAot`) | 8 MB | 18 MB | 0 ms per minute |
 
 | Speed | Time |
 |---|---|
-| Alt+Tab until the switcher is on screen | ~105–130 ms with two monitors: list windows ~13 ms, both monitors build and draw in parallel (~65 ms), uncloak, then the next screen refresh |
-| After plugging in or unplugging a monitor | the first open takes ~300 ms while the switcher windows are recreated |
-| First Alt+Tab after the app starts | about the same (without the start-up warm-up: ~600 ms) |
+| Alt+Tab until the switcher is on screen | ~35–40 ms with two monitors: list windows ~5 ms, both monitors build and draw in parallel (~10 ms), uncloak, then the next screen refresh |
+| After plugging in or unplugging a monitor | the first open also recreates the switcher windows (unless the 2-second rebuild after the change already did) |
+| First Alt+Tab after the app starts | ~40–90 ms (the switcher is built once, invisibly, at start-up) |
 
 How it stays light:
 - **No polling.** It only reacts to the keyboard hook and to changes to the settings file.
@@ -296,7 +297,7 @@ How it stays light:
 - **Workstation GC without the background GC thread.**
 - **The switcher is built the moment you press Alt+Tab, while still invisible** (DWM-cloaked). It's revealed once its first frame is drawn, so it never appears as an empty box. If you set a `showDelayMs`, the wait and the build overlap instead of adding up.
 - **One UI thread per monitor.** Each monitor's switcher window runs on its own thread, so all of them build and draw at the same time. This saved ~35–50 ms with two monitors, for about +2 MB private memory and one thread per monitor.
-- **Warm-up at startup.** The switcher is built once, invisibly, so the first Alt+Tab doesn't wait for .NET to compile the code.
+- **Warm-up at startup.** The switcher is built once, invisibly, so the first Alt+Tab doesn't wait for its windows to be created (or, in the .NET build, for its code to be compiled).
 - **The overlay windows are kept alive between opens.** Recreating them made each open about 60 ms slower and didn't lower committed memory.
 
 To reproduce the numbers, run `--measure`. It logs the first-open time after warm-up, a breakdown of where each open's time goes, the Alt+Tab-to-screen time, and memory and handles across 50 opens. It also says whether any UI framework (WPF, WinForms) was loaded: none should be.

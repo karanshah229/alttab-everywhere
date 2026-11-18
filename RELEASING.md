@@ -24,10 +24,12 @@ pwsh tools/release/build-release.ps1 -Version 0.6.0 -Output artifacts
 
 | File | For |
 |---|---|
-| `AltTabEverywhere-<v>-win-x64.zip`, `-win-arm64.zip` | Most people. Needs the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0); shares it with other apps, so it's the lightest. About 250 KB |
-| `AltTabEverywhere-<v>-win-x64-selfcontained.zip`, `-win-arm64-selfcontained.zip` | PCs without .NET 10. One exe with the runtime inside, about 65 MB zipped (170 MB unzipped), and about 3 MB more private memory |
+| `AltTabEverywhere-<v>-win-x64.zip`, `-win-arm64.zip` | Most people. The switcher is native code (no .NET needed); the settings window needs the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0), shared with other apps. About 3.5 MB |
+| `AltTabEverywhere-<v>-win-x64-selfcontained.zip`, `-win-arm64-selfcontained.zip` | PCs without .NET 10: the settings window carries the runtime inside it. About 70 MB zipped. The switcher is the same native exe |
 | `SHA256SUMS.txt` | Checksums of the zips |
 
-The winget package uses the small zips and installs the .NET 10 Desktop Runtime as a dependency.
+The winget package uses the small zips and installs the .NET 10 Desktop Runtime as a dependency (for the settings window).
 
-ReadyToRun is off on purpose: measured, it didn't open the switcher any faster (WPF itself is already precompiled; this app's own code is small) and it made the download bigger.
+The switcher is built with NativeAOT, which needs Visual Studio's C++ build tools for each architecture (GitHub's Windows runners have them). Without them, `build-release.ps1` warns and falls back to a .NET build of the switcher for that zip.
+
+ReadyToRun is off on purpose for the settings window: measured, it didn't open any faster and made the download bigger.

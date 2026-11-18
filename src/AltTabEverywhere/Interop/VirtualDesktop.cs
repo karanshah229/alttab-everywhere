@@ -1,52 +1,40 @@
 using System;
-using System.Runtime.InteropServices;
 
 namespace AltTabEverywhere.Interop;
 
-/// <summary>Documented virtual-desktop API (Windows 10+): which desktop a window is on.</summary>
-[ComImport, Guid("a5cd92ff-29be-454c-8d04-d82879fb3f1b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IVirtualDesktopManager
-{
-    [PreserveSig] int IsWindowOnCurrentVirtualDesktop(IntPtr topLevelWindow, [MarshalAs(UnmanagedType.Bool)] out bool onCurrentDesktop);
-    [PreserveSig] int GetWindowDesktopId(IntPtr topLevelWindow, out Guid desktopId);
-    [PreserveSig] int MoveWindowToDesktop(IntPtr topLevelWindow, ref Guid desktopId);
-}
-
-internal static class VirtualDesktop
+/// <summary>
+/// Documented virtual-desktop API (Windows 10+): which desktop a window is on, through
+/// IVirtualDesktopManager (slot 3: IsWindowOnCurrentVirtualDesktop; called by hand, see <see cref="Com"/>).
+/// </summary>
+internal static unsafe class VirtualDesktop
 {
     private static readonly Guid ManagerClsid = new("aa509086-5ca9-4c25-8f95-589d3c07b48a");
-    private static IVirtualDesktopManager? _manager;
+    private static readonly Guid ManagerIid = new("a5cd92ff-29be-454c-8d04-d82879fb3f1b");
+    private static nint _manager;
     private static bool _unavailable;
 
     /// <summary>True if the window is on another virtual desktop; false if current or unknown.</summary>
     public static bool IsOnOtherDesktop(IntPtr hwnd)
     {
-        var manager = Manager();
-        if (manager is null) return false;
-        try
+        nint manager = Manager();
+        if (manager == 0) return false;
+        int onCurrent;
+        int hr = ((delegate* unmanaged[Stdcall]<nint, IntPtr, int*, int>)Com.Slot(manager, 3))(manager, hwnd, &onCurrent);
+        if (hr == 0) return onCurrent == 0;
+        if (hr is unchecked((int)0x800706BA) or unchecked((int)0x800706BE) or unchecked((int)0x80010108)) // RPC server gone, call failed, disconnected
         {
-            return manager.IsWindowOnCurrentVirtualDesktop(hwnd, out bool onCurrent) == 0 && !onCurrent;
+            Com.Release(_manager); // e.g. Explorer restarted; reconnect next time
+            _manager = 0;
         }
-        catch (Exception)
-        {
-            _manager = null; // e.g. Explorer restarted; reconnect next time
-            return false;
-        }
+        return false;
     }
 
-    private static IVirtualDesktopManager? Manager()
+    private static nint Manager()
     {
-        if (_manager is not null || _unavailable) return _manager;
-        try
-        {
-            var type = Type.GetTypeFromCLSID(ManagerClsid, throwOnError: false);
-            _manager = type is null ? null : Activator.CreateInstance(type) as IVirtualDesktopManager;
-        }
-        catch (Exception ex)
-        {
-            Log.Error("virtual desktop manager", ex);
-        }
-        _unavailable = _manager is null;
+        if (_manager != 0 || _unavailable) return _manager;
+        _manager = Com.Create(ManagerClsid, ManagerIid);
+        if (_manager == 0) Log.Info("virtual desktop manager unavailable");
+        _unavailable = _manager == 0;
         return _manager;
     }
 }

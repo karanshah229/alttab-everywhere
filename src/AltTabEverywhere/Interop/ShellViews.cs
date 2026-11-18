@@ -9,72 +9,29 @@ namespace AltTabEverywhere.Interop;
 // built-in Alt+Tab, Task View and taskbar use to decide which windows to list.
 //
 // WARNING: undocumented. GUIDs and vtable layouts have changed between Windows releases. Only the
-// methods up to GetShowInSwitchers are declared, and those were verified on Windows 11 build 26200
-// (slots further down, e.g. IsTray, differ on that build and crash). Every method uses PreserveSig
-// so a failing HRESULT comes back as a value instead of an exception.
-
-[ComImport, Guid("92CA9DCD-5622-4BBA-A805-5E9F541BD8C9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IObjectArray
-{
-    [PreserveSig] int GetCount(out int count);
-    [PreserveSig] int GetAt(int index, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out object obj);
-}
-
-[ComImport, Guid("6D5140C1-7436-11CE-8034-00AA006009FA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IServiceProvider10
-{
-    [PreserveSig] int QueryService(ref Guid service, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object obj);
-}
-
-// IApplicationView derives from IInspectable; .NET can't marshal InterfaceIsIInspectable, so the
-// three IInspectable slots are declared by hand.
-[ComImport, Guid("372E1D3B-38D3-42E4-A15B-8AB2B178F513"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IApplicationView
-{
-    [PreserveSig] int GetIids(out int count, out IntPtr iids);
-    [PreserveSig] int GetRuntimeClassName(out IntPtr name);
-    [PreserveSig] int GetTrustLevel(out int level);
-
-    [PreserveSig] int SetFocus();
-    [PreserveSig] int SwitchTo();
-    [PreserveSig] int TryInvokeBack(IntPtr callback);
-    [PreserveSig] int GetThumbnailWindow(out IntPtr hwnd);
-    [PreserveSig] int GetMonitor(out IntPtr immersiveMonitor);
-    [PreserveSig] int GetVisibility(out int visibility);
-    [PreserveSig] int SetCloak(int cloakType, int unknown);
-    [PreserveSig] int GetPosition(ref Guid guid, out IntPtr position);
-    [PreserveSig] int SetPosition(ref IntPtr position);
-    [PreserveSig] int InsertAfterWindow(IntPtr hwnd);
-    [PreserveSig] int GetExtendedFramePosition(out RECT rect);
-    [PreserveSig] int GetAppUserModelId([MarshalAs(UnmanagedType.LPWStr)] out string id);
-    [PreserveSig] int SetAppUserModelId([MarshalAs(UnmanagedType.LPWStr)] string id);
-    [PreserveSig] int IsEqualByAppUserModelId([MarshalAs(UnmanagedType.LPWStr)] string id, out int result);
-    [PreserveSig] int GetViewState(out uint state);
-    [PreserveSig] int SetViewState(uint state);
-    [PreserveSig] int GetNeediness(out int neediness);
-    [PreserveSig] int GetLastActivationTimestamp(out ulong timestamp);
-    [PreserveSig] int SetLastActivationTimestamp(ulong timestamp);
-    [PreserveSig] int GetVirtualDesktopId(out Guid guid);
-    [PreserveSig] int SetVirtualDesktopId(ref Guid guid);
-    [PreserveSig] int GetShowInSwitchers(out int flag);
-}
-
-[ComImport, Guid("1841C6D7-4F9D-42C0-AF41-8747538F10E5"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IApplicationViewCollection
-{
-    [PreserveSig] int GetViews(out IObjectArray array);
-    [PreserveSig] int GetViewsByZOrder(out IObjectArray array);
-}
+// methods up to GetShowInSwitchers are used, and those were verified on Windows 11 build 26200
+// (slots further down, e.g. IsTray, differ on that build and crash). Calls go through the vtable
+// (see Com): every failure comes back as an HRESULT.
+//
+//   IServiceProvider:            3 QueryService
+//   IApplicationViewCollection:  3 GetViews, 4 GetViewsByZOrder
+//   IObjectArray:                3 GetCount, 4 GetAt
+//   IApplicationView (IInspectable: 3-5): 9 GetThumbnailWindow, 17 GetAppUserModelId,
+//                                23 GetLastActivationTimestamp, 27 GetShowInSwitchers
 
 /// <summary>A window the shell says belongs in Alt+Tab.</summary>
 internal readonly record struct ShellView(IntPtr Hwnd, string? AppUserModelId, ulong LastActivation);
 
 /// <summary>Reads the shell's Alt+Tab list. Returns null if the interfaces aren't available.</summary>
-internal sealed class ShellViews
+internal sealed unsafe class ShellViews
 {
     private static readonly Guid ImmersiveShellClsid = new("C2F03A33-21F5-47FA-B4BB-156362A2F239");
+    private static readonly Guid ServiceProviderIid = new("6D5140C1-7436-11CE-8034-00AA006009FA");
+    private static readonly Guid CollectionIid = new("1841C6D7-4F9D-42C0-AF41-8747538F10E5");
+    private static readonly Guid ViewIid = new("372E1D3B-38D3-42E4-A15B-8AB2B178F513");
 
-    private IApplicationViewCollection? _collection;
+    /// <summary>IApplicationViewCollection, kept between calls (one connection per app run).</summary>
+    private nint _collection;
 
     public List<ShellView>? GetSwitcherViews()
     {
@@ -83,8 +40,8 @@ internal sealed class ShellViews
         {
             try
             {
-                _collection ??= Connect();
-                if (_collection is null) return null;
+                if (_collection == 0) _collection = Connect();
+                if (_collection == 0) return null;
 
                 var result = Read(_collection);
                 if (result is not null) return result;
@@ -93,42 +50,81 @@ internal sealed class ShellViews
             {
                 Log.Error("shell view list", ex);
             }
-            _collection = null;
+            Com.Release(_collection);
+            _collection = 0;
         }
         return null;
     }
 
-    private static IApplicationViewCollection? Connect()
+    private static nint Connect()
     {
-        var shellType = Type.GetTypeFromCLSID(ImmersiveShellClsid, throwOnError: false);
-        if (shellType is null || Activator.CreateInstance(shellType) is not IServiceProvider10 provider) return null;
-
-        Guid iid = typeof(IApplicationViewCollection).GUID;
-        return provider.QueryService(ref iid, ref iid, out object service) == 0
-            ? service as IApplicationViewCollection
-            : null;
+        nint provider = Com.Create(ImmersiveShellClsid, ServiceProviderIid);
+        if (provider == 0) return 0;
+        try
+        {
+            Guid iid = CollectionIid;
+            nint collection;
+            var queryService = (delegate* unmanaged[Stdcall]<nint, Guid*, Guid*, nint*, int>)Com.Slot(provider, 3);
+            return queryService(provider, &iid, &iid, &collection) == 0 ? collection : 0;
+        }
+        finally
+        {
+            Com.Release(provider);
+        }
     }
 
-    private static List<ShellView>? Read(IApplicationViewCollection collection)
+    private static List<ShellView>? Read(nint collection)
     {
-        if (collection.GetViewsByZOrder(out var array) != 0 || array is null) return null;
-        if (array.GetCount(out int count) != 0) return null;
-
-        var views = new List<ShellView>(count);
-        Guid viewIid = typeof(IApplicationView).GUID;
-        for (int i = 0; i < count; i++)
+        nint array;
+        if (((delegate* unmanaged[Stdcall]<nint, nint*, int>)Com.Slot(collection, 4))(collection, &array) != 0 || array == 0) return null;
+        try
         {
-            if (array.GetAt(i, ref viewIid, out object obj) != 0 || obj is not IApplicationView view) continue;
-            if (view.GetShowInSwitchers(out int show) != 0 || show == 0) continue;
-            if (view.GetThumbnailWindow(out IntPtr hwnd) != 0 || hwnd == IntPtr.Zero) continue;
+            int count;
+            if (((delegate* unmanaged[Stdcall]<nint, int*, int>)Com.Slot(array, 3))(array, &count) != 0) return null;
+            var getAt = (delegate* unmanaged[Stdcall]<nint, int, Guid*, nint*, int>)Com.Slot(array, 4);
 
-            string? aumid = view.GetAppUserModelId(out string id) == 0 ? id : null;
-            ulong lastActivation = view.GetLastActivationTimestamp(out ulong ts) == 0 ? ts : 0;
-            views.Add(new ShellView(hwnd, aumid, lastActivation));
+            var views = new List<ShellView>(count);
+            Guid viewIid = ViewIid;
+            for (int i = 0; i < count; i++)
+            {
+                nint view;
+                if (getAt(array, i, &viewIid, &view) != 0 || view == 0) continue;
+                try
+                {
+                    if (ReadView(view) is { } shellView) views.Add(shellView);
+                }
+                finally
+                {
+                    Com.Release(view);
+                }
+            }
+
+            // Windows' Alt+Tab orders by last activation, not Z-order. They differ once you've
+            // used windows that sit behind others. OrderByDescending is stable, so ties keep Z-order.
+            return views.OrderByDescending(v => v.LastActivation).ToList();
         }
+        finally
+        {
+            Com.Release(array);
+        }
+    }
 
-        // Windows' Alt+Tab orders by last activation, not Z-order. They differ once you've
-        // used windows that sit behind others. OrderByDescending is stable, so ties keep Z-order.
-        return views.OrderByDescending(v => v.LastActivation).ToList();
+    private static ShellView? ReadView(nint view)
+    {
+        int show;
+        if (((delegate* unmanaged[Stdcall]<nint, int*, int>)Com.Slot(view, 27))(view, &show) != 0 || show == 0) return null;
+        IntPtr hwnd;
+        if (((delegate* unmanaged[Stdcall]<nint, IntPtr*, int>)Com.Slot(view, 9))(view, &hwnd) != 0 || hwnd == IntPtr.Zero) return null;
+
+        string? aumid = null;
+        char* id;
+        if (((delegate* unmanaged[Stdcall]<nint, char**, int>)Com.Slot(view, 17))(view, &id) == 0 && id != null)
+        {
+            aumid = new string(id);
+            Marshal.FreeCoTaskMem((nint)id);
+        }
+        ulong lastActivation;
+        if (((delegate* unmanaged[Stdcall]<nint, ulong*, int>)Com.Slot(view, 23))(view, &lastActivation) != 0) lastActivation = 0;
+        return new ShellView(hwnd, aumid, lastActivation);
     }
 }

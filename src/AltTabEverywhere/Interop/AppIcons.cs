@@ -38,29 +38,28 @@ internal static class AppIcons
     private static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder name, int capacity);
 
     /// <summary>The app's icon, or null if the shell doesn't know it (the caller falls back to the window's).</summary>
-    public static AppIcon? ForAppId(string appUserModelId)
+    public static unsafe AppIcon? ForAppId(string appUserModelId)
     {
         if (Cache.TryGetValue(appUserModelId, out var cached)) return cached;
         if (Cache.Count >= MaxCached) Cache.Clear();
 
         AppIcon? icon = null;
         IntPtr bitmap = IntPtr.Zero;
+        nint factory = 0;
         try
         {
-            var appsFolder = FolderIdAppsFolder;
-            var iid = typeof(IShellItemImageFactory).GUID;
-            SHCreateItemInKnownFolder(ref appsFolder, 0, appUserModelId, ref iid, out object item);
-            var factory = (IShellItemImageFactory)item;
-            if (factory.GetImage(new SIZE { cx = Size, cy = Size }, SIIGBF_ICONONLY, out bitmap) == 0)
+            // Not an installed app (or not one the shell can draw): no item, and the window's icon is used.
+            Guid appsFolder = FolderIdAppsFolder, iid = ImageFactoryIid;
+            fixed (char* id = appUserModelId)
+                if (SHCreateItemInKnownFolder(&appsFolder, 0, id, &iid, &factory) != 0 || factory == 0) factory = 0;
+            // IShellItemImageFactory, slot 3: GetImage(SIZE, flags, HBITMAP*). Called by hand (see Com).
+            if (factory != 0 && ((delegate* unmanaged[Stdcall]<nint, SIZE, int, IntPtr*, int>)Com.Slot(factory, 3))(
+                    factory, new SIZE { cx = Size, cy = Size }, SIIGBF_ICONONLY, &bitmap) == 0)
                 icon = AppIcon.FromBitmap(bitmap);
-            Marshal.ReleaseComObject(item);
-        }
-        catch (Exception ex) when (ex is COMException or InvalidCastException or ArgumentException)
-        {
-            // Not an installed app (or not one the shell can draw): use the window's icon.
         }
         finally
         {
+            Com.Release(factory);
             if (bitmap != IntPtr.Zero) DeleteObject(bitmap);
         }
 
@@ -71,14 +70,8 @@ internal static class AppIcons
     // ---- Interop ----
 
     private static readonly Guid FolderIdAppsFolder = new("1e87508d-89c2-42f0-8a7e-645a0f50ca58");
+    private static readonly Guid ImageFactoryIid = new("bcc18b79-ba16-442f-80c4-8a59c30c463b");
     private const int SIIGBF_ICONONLY = 0x4;
-
-    [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IShellItemImageFactory
-    {
-        [PreserveSig]
-        int GetImage(SIZE size, int flags, out IntPtr bitmap);
-    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SIZE
@@ -87,9 +80,8 @@ internal static class AppIcons
         public int cy;
     }
 
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
-    private static extern void SHCreateItemInKnownFolder(ref Guid folderId, uint flags, string item, ref Guid iid,
-        [MarshalAs(UnmanagedType.Interface)] out object result);
+    [DllImport("shell32.dll")]
+    private static extern unsafe int SHCreateItemInKnownFolder(Guid* folderId, uint flags, char* item, Guid* iid, nint* result);
 
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr handle);

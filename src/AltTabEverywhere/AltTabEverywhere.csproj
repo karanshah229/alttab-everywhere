@@ -5,6 +5,11 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <!-- The Win32 switcher passes pointers to Windows (no marshalling, NativeAOT-friendly). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Built with NativeAOT where the C++ build tools are installed (install.ps1, releases): flags anything
+         that would break it (reflection, runtime COM) in every build. -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <!-- No culture data (ICU) to load: search, sorting and settings are all ordinal or invariant. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- dotnet publish -p:UiAccess=true (install.ps1 -AdminWindows): runs with uiAccess, which Windows
          only allows for a signed exe under Program Files. -->

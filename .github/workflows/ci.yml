@@ -20,3 +20,7 @@ jobs:
         run: dotnet build -c Release
       - name: Unit tests
         run: dotnet test -c Release --no-build --logger "console;verbosity=normal"
+      - name: Native build (NativeAOT)
+        # install.ps1 and the releases compile the switcher to native code: make sure it still does,
+        # with no trimming or AOT warnings (reflection or runtime COM would break it at run time).
+        run: dotnet publish src/AltTabEverywhere/AltTabEverywhere.csproj -c Release -r win-x64 -p:PublishAot=true -p:TreatWarningsAsErrors=true -o aot

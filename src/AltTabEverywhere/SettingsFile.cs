@@ -21,9 +21,27 @@ internal sealed partial class SettingsStore
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        // Enums as camelCase names ("allMonitors"). One generic converter per enum: no reflection, so
+        // it works in the NativeAOT build too.
+        Converters =
+        {
+            new JsonStringEnumConverter<AppTheme>(JsonNamingPolicy.CamelCase),
+            new JsonStringEnumConverter<GroupWindows>(JsonNamingPolicy.CamelCase),
+            new JsonStringEnumConverter<HighContrastMode>(JsonNamingPolicy.CamelCase),
+            new JsonStringEnumConverter<ListWindowsFrom>(JsonNamingPolicy.CamelCase),
+            new JsonStringEnumConverter<NumberKeys>(JsonNamingPolicy.CamelCase),
+            new JsonStringEnumConverter<PeekMode>(JsonNamingPolicy.CamelCase),
+            new JsonStringEnumConverter<SearchMode>(JsonNamingPolicy.CamelCase),
+            new JsonStringEnumConverter<ShowOn>(JsonNamingPolicy.CamelCase),
+            new JsonStringEnumConverter<SortOrder>(JsonNamingPolicy.CamelCase),
+            new JsonStringEnumConverter<SwitcherLayout>(JsonNamingPolicy.CamelCase),
+            new JsonStringEnumConverter<VirtualDesktops>(JsonNamingPolicy.CamelCase),
+            new JsonStringEnumConverter<WindowScope>(JsonNamingPolicy.CamelCase),
+        },
         // A file people edit by hand: write "Alt+Tab", not "Alt+Tab". It is never embedded in HTML.
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        // Generated at compile time (SettingsJson below) instead of found by reflection at run time.
+        TypeInfoResolver = SettingsJson.Default,
     };
 
     public static string Directory { get; } =
@@ -35,7 +53,7 @@ internal sealed partial class SettingsStore
     public static Settings LoadOnce() =>
         File.Exists(FilePath) && TryRead(out var settings) ? settings : new Settings().Normalized();
 
-    public static string Serialize(Settings settings) => JsonSerializer.Serialize(settings, JsonOptions);
+    public static string Serialize(Settings settings) => JsonSerializer.Serialize(settings, Info<Settings>());
 
     /// <summary>
     /// Changes one key in settings.json (used by tray-menu toggles), keeping every other key as the
@@ -76,10 +94,14 @@ internal sealed partial class SettingsStore
     }
 
     /// <summary>A value as settings.json writes it (camelCase enums and keys), for <see cref="SetValue"/>.</summary>
-    public static System.Text.Json.Nodes.JsonNode? ToNode<T>(T value) => JsonSerializer.SerializeToNode(value, JsonOptions);
+    public static System.Text.Json.Nodes.JsonNode? ToNode<T>(T value) => JsonSerializer.SerializeToNode(value, Info<T>());
+
+    /// <summary>The generated (de)serializer for <typeparamref name="T"/>, with settings.json's options.</summary>
+    private static System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> Info<T>() =>
+        (System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>)JsonOptions.GetTypeInfo(typeof(T));
 
     public static Settings Deserialize(string json) =>
-        (JsonSerializer.Deserialize<Settings>(json, JsonOptions) ?? new Settings()).Normalized();
+        (JsonSerializer.Deserialize(json, Info<Settings>()) ?? new Settings()).Normalized();
 
     /// <summary>Opens settings.json in the default .json editor, or Notepad if none is associated.</summary>
     public static void OpenInEditor()
@@ -122,3 +144,29 @@ internal sealed partial class SettingsStore
         }
     }
 }
+
+/// <summary>
+/// settings.json's types, serialized by code generated at compile time: no reflection, so the
+/// switcher can be compiled with NativeAOT. Also every type the settings window writes on its own.
+/// </summary>
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(Settings))]
+[JsonSerializable(typeof(List<Shortcut>))]
+[JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(AppTheme))]
+[JsonSerializable(typeof(GroupWindows))]
+[JsonSerializable(typeof(HighContrastMode))]
+[JsonSerializable(typeof(ListWindowsFrom))]
+[JsonSerializable(typeof(NumberKeys))]
+[JsonSerializable(typeof(PeekMode))]
+[JsonSerializable(typeof(SearchMode))]
+[JsonSerializable(typeof(ShowOn))]
+[JsonSerializable(typeof(SortOrder))]
+[JsonSerializable(typeof(SwitcherLayout))]
+[JsonSerializable(typeof(VirtualDesktops))]
+[JsonSerializable(typeof(WindowScope))]
+[JsonSerializable(typeof(bool))]
+[JsonSerializable(typeof(int))]
+[JsonSerializable(typeof(double))]
+[JsonSerializable(typeof(string))]
+internal sealed partial class SettingsJson : JsonSerializerContext;

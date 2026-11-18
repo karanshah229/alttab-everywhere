@@ -23,7 +23,8 @@ This app runs all the time, from Windows startup, usually on a laptop. Every cha
 
 ## Workflow
 
-- Build: `dotnet build`. Unit tests: `dotnet test`.
+- Build: `dotnet build` (both exes: the switcher and `AltTabEverywhere.Settings`). Unit tests: `dotnet test`.
+- Native build check: `dotnet publish src/AltTabEverywhere -c Release -r win-x64 -p:PublishAot=true` (needs Visual Studio's C++ tools; in Git Bash add `/c/Program Files (x86)/Microsoft Visual Studio/Installer` to PATH for vswhere). It must stay free of trim/AOT warnings: no reflection-based JSON, no runtime COM (`[ComImport]`); use `Interop/Com.cs` or source-generated COM. Run `--selftest` on the published exe after interop changes.
 - Navigation self-test on the real overlays, all monitors: run the app with `--selftest` (exit code 0 means pass; details in `%LOCALAPPDATA%\AltTabEverywhere\log.txt`). Run it after any change to layout or navigation.
 - Stop the running `AltTabEverywhere.exe` before building; the running exe locks the build output.
 - The user runs an installed copy: after a change is done and tested, update it with `install.ps1` (or `install.ps1 -AdminWindows` if that is how it was installed; that needs their administrator prompt, so ask them to run it). Never add certificates or trust anything on the user's machine yourself.

@@ -17,15 +17,24 @@
     4. deletes the certificate's private key at once, so nothing else can ever be signed with it.
   Each run makes a fresh certificate and removes the previous one. uninstall.ps1 removes it too.
 
+  The switcher is compiled to native code (NativeAOT: about 13 MB of memory instead of 18, and no
+  .NET runtime to load) when Visual Studio's C++ build tools are installed ("Desktop development
+  with C++", or the Build Tools for Visual Studio); otherwise, or with -NoNativeAot, it's a normal
+  .NET build. The settings window is always a normal .NET (WPF) app, started only while it's open.
+
   Your settings (%APPDATA%\AltTabEverywhere) are kept. Needs the .NET 10 SDK.
 
 .EXAMPLE
   ./install.ps1
 .EXAMPLE
   ./install.ps1 -AdminWindows
+.EXAMPLE
+  ./install.ps1 -NoNativeAot
 #>
 param(
     [switch] $AdminWindows,
+    # Build the switcher as a normal .NET app even if the C++ build tools for NativeAOT are installed.
+    [switch] $NoNativeAot,
     # Internal: the elevated second half of -AdminWindows (copy, sign, trust). Not for direct use.
     [string] $ElevatedInstallFrom
 )
@@ -56,7 +65,9 @@ if ($ElevatedInstallFrom) {
             Export-Certificate -Cert $cert -FilePath $public | Out-Null
             Import-Certificate -FilePath $public -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
             Import-Certificate -FilePath $public -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
+            # The switcher: one native exe (NativeAOT), or the exe and its .dll (.NET).
             foreach ($file in "AltTabEverywhere.exe", "AltTabEverywhere.dll") {
+                if (-not (Test-Path (Join-Path $adminDir $file))) { continue }
                 $signed = Set-AuthenticodeSignature -FilePath (Join-Path $adminDir $file) -Certificate $cert -HashAlgorithm SHA256
                 if ($signed.Status -ne "Valid") { throw "Signing $file failed: $($signed.StatusMessage)" }
             }
@@ -87,16 +98,32 @@ if (-not ($sdks | Where-Object { $_ -match '^(1\d|[2-9]\d)\.' })) {
 }
 $rid = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "win-arm64" } else { "win-x64" }
 $staging = Join-Path $env:TEMP "alttab-everywhere-build-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+# NativeAOT needs the C++ linker for this PC's architecture, found through vswhere.
+$aot = $false
+if (-not $NoNativeAot) {
+    $installer = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer"
+    $vswhere = Join-Path $installer "vswhere.exe"
+    $component = if ($rid -eq "win-arm64") { "Microsoft.VisualStudio.Component.VC.Tools.ARM64" } else { "Microsoft.VisualStudio.Component.VC.Tools.x86.x64" }
+    if ((Test-Path $vswhere) -and (& $vswhere -products * -requires $component -property installationPath)) {
+        $aot = $true
+        if ($env:PATH -notlike "*$installer*") { $env:PATH += ";$installer" } # the AOT build looks for vswhere on PATH
+    }
+}
 $publish = @("publish", (Join-Path $root "src/AltTabEverywhere/AltTabEverywhere.csproj"), "-c", "Release", "-r", $rid,
-    "--self-contained", "false", "-p:DebugType=none", "-o", $staging)
+    "-p:DebugType=none", "-o", $staging)
+$publish += if ($aot) { "-p:PublishAot=true" } else { @("--self-contained", "false") }
 if ($AdminWindows) { $publish += "-p:UiAccess=true" }
-Write-Host "Building ($rid$(if ($AdminWindows) { ', uiAccess' }))..."
+Write-Host "Building ($rid, $(if ($aot) { 'native code (NativeAOT)' } else { '.NET' })$(if ($AdminWindows) { ', uiAccess' }))..."
+if (-not $aot -and -not $NoNativeAot) {
+    Write-Host "  (Install Visual Studio's C++ build tools to get the lighter native build.)"
+}
 & dotnet @publish | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "The build failed. Run 'dotnet build' to see why." }
 # The settings window: a WPF exe of its own, next to the switcher, started only while you use it.
 & dotnet publish (Join-Path $root "src/AltTabEverywhere.Settings/AltTabEverywhere.Settings.csproj") -c Release -r $rid `
     --self-contained false -p:DebugType=none -o $staging | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "The settings window's build failed. Run 'dotnet build' to see why." }
+Remove-Item (Join-Path $staging "*.pdb") -ErrorAction SilentlyContinue # debug symbols (NativeAOT writes them anyway)
 Copy-Item (Join-Path $root "LICENSE") $staging
 
 # The running copy (wherever it was started from) locks its files and would keep running the old build.
