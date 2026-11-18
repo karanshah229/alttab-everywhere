@@ -62,15 +62,6 @@ public class ThemeTests
     }
 
     [Fact]
-    public void Brushes_are_frozen_so_every_overlay_thread_can_use_them()
-    {
-        var theme = WpfTheme.For(Theme.Create(new Settings(), false, Palette));
-        Assert.True(theme.Background.IsFrozen);
-        Assert.True(theme.SelectedBorder.IsFrozen);
-        Assert.True(theme.DimText.IsFrozen);
-    }
-
-    [Fact]
     public void Theme_settings_round_trip_and_normalize()
     {
         var s = SettingsStore.Deserialize("""{ "theme": "light", "accentColor": "#123456", "backgroundColor": null }""");

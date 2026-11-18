@@ -20,13 +20,16 @@ internal sealed unsafe class HiddenWindow : IDisposable
     public IntPtr Handle { get; private set; }
 
     /// <param name="style">Window styles; the default is a hidden popup. (The self-test makes visible test windows with it.)</param>
-    public HiddenWindow(string name, Handler handler, uint style = WS_POPUP, int x = 0, int y = 0, int width = 0, int height = 0)
+    /// <param name="exStyle">Extended styles; the default keeps it out of the taskbar and Alt+Tab.</param>
+    /// <param name="owner">An owner window (an owned window stays out of the taskbar too).</param>
+    public HiddenWindow(string name, Handler handler, uint style = WS_POPUP, int x = 0, int y = 0, int width = 0, int height = 0,
+        uint exStyle = WS_EX_TOOLWINDOW, IntPtr owner = default)
     {
         _handler = handler;
         EnsureClass();
         fixed (char* cls = ClassName)
         fixed (char* title = name)
-            Handle = CreateWindowExW(WS_EX_TOOLWINDOW, cls, title, style, x, y, width, height, IntPtr.Zero, IntPtr.Zero, GetModuleHandleW(null), IntPtr.Zero);
+            Handle = CreateWindowExW(exStyle, cls, title, style, x, y, width, height, owner, IntPtr.Zero, GetModuleHandleW(null), IntPtr.Zero);
         if (Handle == IntPtr.Zero) throw new InvalidOperationException($"{name}: CreateWindowEx failed ({Marshal.GetLastPInvokeError()})");
         _self = GCHandle.Alloc(this);
         SetWindowLongPtrW(Handle, GWLP_USERDATA, GCHandle.ToIntPtr(_self));

@@ -224,7 +224,6 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 |---|---|---|
 | `startWithWindows` | `false` | Start when you sign in to Windows. Same as the tray toggle |
 | `checkForUpdates` | `false` | Ask GitHub for a newer release, at most once a day, at startup (or when you turn this on). If there is one, the tray menu gets a **Download version X…** item and a notification appears; both open the release page. Nothing is downloaded or installed automatically. The request carries only the app's name and version, and this is the only time the app ever goes online. Off by default |
-| `experimentalWin32Switcher` | `false` | Experimental: draws the switcher with plain Win32 (GDI and DWM) instead of WPF, the first step to a much lighter app (see the roadmap). Layout, previews, mouse actions, the right-click menu, tooltips and screen readers work as in the normal switcher (screen readers see the same list of tiles, through a UI Automation provider that only exists once one asks). Takes effect from the next Alt+Tab |
 
 Example:
 
@@ -256,7 +255,8 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 | List the windows | The shell's own Alt+Tab list: undocumented `IApplicationViewCollection` → `IApplicationView::GetShowInSwitchers`, sorted by `GetLastActivationTimestamp`. This matches Windows exactly | `Interop/ShellViews.cs` |
 | Fallback list | `EnumWindows`, `DWMWA_CLOAKED`, Raymond Chen's owner/popup rule. Used only if the shell interfaces fail | `WindowEnumerator.cs` |
 | One overlay per monitor | `EnumDisplayMonitors`, `GetMonitorInfo`, `GetDpiForMonitor`; Per-Monitor V2 DPI manifest | `Monitors.cs`, `SwitcherWindow.cs` |
-| Parallel overlays | Each overlay window on its own STA thread and dispatcher; calls are marshalled and stay in order | `OverlayHost.cs` |
+| Parallel overlays | Each overlay window on its own STA thread with a plain Win32 message loop and work queue; calls are marshalled and stay in order | `OverlayHost.cs`, `UiThread.cs` |
+| Drawing | GDI+ (flat API) for rounded shapes and icons, GDI `DrawTextW` for ClearType text, into a DIB that exists only during `WM_PAINT`; tooltips from common controls 6; `TrackPopupMenuEx` for the tile and tray menus | `SwitcherWindow.cs`, `TrayIcon.cs` |
 | Hook recovery and display changes | A hidden window receives `WM_POWERBROADCAST`, `WM_WTSSESSION_CHANGE` and `WM_DISPLAYCHANGE`. No polling and no extra thread | `SystemMessageWindow.cs` |
 | Exclusions and per-monitor lists | Pure filters, unit-tested | `WindowFilter.cs` |
 | Virtual desktops | `IVirtualDesktopManager::IsWindowOnCurrentVirtualDesktop` (documented) plus `DWMWA_CLOAKED` | `Interop/VirtualDesktop.cs` |
@@ -271,7 +271,7 @@ Here Alt+Tab lists each monitor's own windows, Win+Tab lists every window on eve
 | Move here | `GetWindowPlacement` / `SetWindowPlacement` with the normal position mapped onto the new work area (workspace coordinates allowed for), then `SW_MAXIMIZE` for maximized windows | `Interop/WindowMover.cs` |
 | Working over admin windows | `uiAccess="true"` in `app.uiaccess.manifest` (built with `-p:UiAccess=true`), signed with a certificate made, trusted and then stripped of its private key on the user's own PC by `install.ps1 -AdminWindows`; the app reads `TokenUIAccess` and then allows window actions on admin windows | `install.ps1`, `Interop/ProcessElevation.cs` |
 | Window actions | `ShowWindowAsync` (minimize, restore, maximize: never waits on a frozen app), `SetWindowPos(HWND_TOPMOST)` followed by raising the switcher again, and `WM_CLOSE` to each of an app's windows | `WindowActions.cs` |
-| Accessibility | Tiles are UI Automation list items (`TileBorder`, `TilePanel`) named from their window, with `PositionInSet`/`SizeOfSet`; focus follows the selection; "No windows match" is a live region. Contrast theme read with `SPI_GETHIGHCONTRAST` and `GetSysColor`, refreshed on `WM_SYSCOLORCHANGE` | `TileAutomation.cs`, `Theme.cs` |
+| Accessibility | A UI Automation provider (`IRawElementProviderFragment`, source-generated COM) answering `WM_GETOBJECT`: a list of tiles, each a list item named from its window, with `PositionInSet`/`SizeOfSet`; focus follows the selection; "No windows match" is a live region. Nothing exists until a screen reader asks. Contrast theme read with `SPI_GETHIGHCONTRAST` and `GetSysColor`, refreshed on `WM_SYSCOLORCHANGE` | `SwitcherAutomation.cs`, `Interop/Uia.cs`, `Theme.cs` |
 | Switch windows | `SetForegroundWindow`, with an `AttachThreadInput` fallback | `WindowActivator.cs` |
 
 ## Resource use
@@ -291,7 +291,7 @@ The app is always running, so idle cost matters more than anything else. Measure
 
 How it stays light:
 - **No polling.** It only reacts to the keyboard hook and to changes to the settings file.
-- **Software rendering for WPF.** The overlay is simple, and previews are composited by DWM, so there's no need for a Direct3D device. That device alone cost about 115 MB private, about 1,200 handles, and a 1.5 MB native leak per open.
+- **No UI framework.** The switcher is drawn with plain Win32: GDI+ for shapes and icons, GDI for ClearType text, DWM for the live previews, on a plain Windows message loop. Each frame is drawn into a buffer that only exists while painting. Until 0.7 it was WPF: twice as slow to open and about 24 MB more private memory, even drawing in software (a Direct3D device would have cost another ~115 MB). The settings window is still WPF, in its own exe, loaded only while it is open.
 - **Memory trim 2 seconds after each close.** The .NET heap is compacted and the working set is handed back to Windows. This is a one-shot timer, not a repeating one.
 - **Workstation GC without the background GC thread.**
 - **The switcher is built the moment you press Alt+Tab, while still invisible** (DWM-cloaked). It's revealed once its first frame is drawn, so it never appears as an empty box. If you set a `showDelayMs`, the wait and the build overlap instead of adding up.
@@ -299,7 +299,7 @@ How it stays light:
 - **Warm-up at startup.** The switcher is built once, invisibly, so the first Alt+Tab doesn't wait for .NET to compile the code.
 - **The overlay windows are kept alive between opens.** Recreating them made each open about 60 ms slower and didn't lower committed memory.
 
-To reproduce the numbers, run `--measure`. It logs the first-open time after warm-up, a breakdown of where each open's time goes, the Alt+Tab-to-screen time, and memory and handles across 50 opens. Add `--hardware-rendering` to compare against WPF's GPU rendering, or `--win32-switcher` / `--wpf-switcher` to measure one switcher whatever `experimentalWin32Switcher` says (they work with `--demo` too):
+To reproduce the numbers, run `--measure`. It logs the first-open time after warm-up, a breakdown of where each open's time goes, the Alt+Tab-to-screen time, and memory and handles across 50 opens. It also says whether any UI framework (WPF, WinForms) was loaded: none should be.
 
 ```bash
 dotnet run -c Release --project src/AltTabEverywhere -- --measure

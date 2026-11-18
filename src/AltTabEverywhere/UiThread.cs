@@ -7,26 +7,13 @@ using static AltTabEverywhere.Interop.Win32;
 
 namespace AltTabEverywhere;
 
-/// <summary>Runs work on one UI thread, whatever the thread's message loop is (Win32 or WPF's).</summary>
-internal interface IUiQueue
-{
-    /// <summary>Queues <paramref name="action"/>; the task completes when it has run.</summary>
-    Task InvokeAsync(Action action);
-    /// <summary>Queues an async <paramref name="work"/>; the task completes when it has finished.</summary>
-    Task InvokeAsync(Func<Task> work);
-    /// <summary>Runs <paramref name="read"/> on the thread and waits for its result.</summary>
-    T Invoke<T>(Func<T> read);
-    /// <summary>Ends the thread's message loop.</summary>
-    void Shutdown();
-}
-
 /// <summary>
 /// A Win32 message loop and work queue for one thread, in place of WPF's Dispatcher: work is posted to
 /// a message-only window, timers are Windows timers on it (see <see cref="UiTimer"/>), and `await`
 /// comes back to the thread through its <see cref="SynchronizationContext"/>. Between messages the
 /// thread sleeps in GetMessage: no polling.
 /// </summary>
-internal sealed class UiThread : IUiQueue
+internal sealed class UiThread
 {
     private const uint WM_RUN = 0x8001; // WM_APP + 1
     private const uint WM_TIMER = 0x0113;

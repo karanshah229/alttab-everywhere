@@ -28,8 +28,8 @@ internal enum HighContrastMode
 internal sealed record SystemColorSet(Argb Window, Argb WindowText, Argb Highlight, Argb HighlightText);
 
 /// <summary>
-/// The switcher's colours, independent of any UI framework (WPF code gets frozen brushes from
-/// <see cref="WpfTheme"/>; the Win32 switcher draws with them directly). Built once
+/// The switcher's colours, independent of any UI framework (the settings window gets WPF brushes from
+/// <see cref="WpfTheme"/>; the switcher draws with them directly). Built once
 /// and cached (see <see cref="Current"/>); rebuilt only when settings change or Windows announces a
 /// theme or accent change. Nothing is read from the registry per Alt+Tab.
 /// </summary>

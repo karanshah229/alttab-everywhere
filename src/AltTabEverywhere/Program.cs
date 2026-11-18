@@ -23,11 +23,6 @@ internal static class Program
             return 0;
         }
 
-        // WPF is only loaded for the WPF switcher and the settings window. The overlay is a few
-        // rectangles and text, so WPF draws it in software: a Direct3D device and the GPU driver
-        // would cost ~115 MB private memory and ~1,200 handles for the life of the process.
-        // (--hardware-rendering exists only to compare the two with --measure.)
-        WpfHardwareRendering = args.Contains("--hardware-rendering", StringComparer.OrdinalIgnoreCase);
 
         // --settings (older shortcuts): the settings window is its own exe now.
         if (args.Contains("--settings", StringComparer.OrdinalIgnoreCase))
@@ -45,9 +40,6 @@ internal static class Program
         using var settings = new SettingsStore();
         settings.Load();
         using var controller = new SwitcherController(settings);
-        // --win32-switcher / --wpf-switcher: --demo and --measure use that switcher whatever the settings say.
-        if (args.Contains("--win32-switcher", StringComparer.OrdinalIgnoreCase)) controller.ForceSwitcher(win32: true);
-        if (args.Contains("--wpf-switcher", StringComparer.OrdinalIgnoreCase)) controller.ForceSwitcher(win32: false);
         TrayIcon? tray = null;
         SystemMessageWindow? systemEvents = null;
 
@@ -124,16 +116,6 @@ internal static class Program
         tray?.Dispose();
         Log.Info("exited");
         return exitCode;
-    }
-
-    /// <summary>--hardware-rendering: let WPF use the GPU (only to compare with --measure).</summary>
-    internal static bool WpfHardwareRendering { get; private set; }
-
-    /// <summary>Before WPF draws anything in this process: software rendering, unless --hardware-rendering.</summary>
-    internal static void UseWpfSoftwareRendering()
-    {
-        if (!WpfHardwareRendering)
-            System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
     }
 
     private static void ShowError(string message)

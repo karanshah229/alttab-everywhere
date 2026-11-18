@@ -275,8 +275,6 @@ internal sealed class SettingsWindow : Window
         Section("System");
         Toggle("Start with Windows", "No admin rights needed.", "startWithWindows", _s.StartWithWindows);
         Toggle("Check for updates", "Once a day at startup, from GitHub. Off: never goes online.", "checkForUpdates", _s.CheckForUpdates);
-        Toggle("Lighter switcher (experimental)", "Drawn with plain Win32 instead of WPF: far less memory.",
-            "experimentalWin32Switcher", _s.ExperimentalWin32Switcher);
     }
 
     /// <summary>Writes the default value of each key, then rebuilds the window from the file.</summary>

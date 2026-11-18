@@ -19,25 +19,14 @@ internal sealed partial class SwitcherController
     /// scrolled into view, that the switcher stays within its size cap, and that opening a stack
     /// (by key and by resting on it) shows its windows and Back returns.
     /// </summary>
-    public void RunSelfTest(Action<bool> done) =>
-        // Both switchers, one after the other, until the Win32 one replaces WPF's.
-        RunSelfTestPass(win32: false, wpfPassed => RunSelfTestPass(win32: true, win32Passed =>
-        {
-            _win32ForTest = null;
-            done(wpfPassed && win32Passed);
-        }));
-
-    private async void RunSelfTestPass(bool win32, Action<bool> done)
+    public async void RunSelfTest(Action<bool> done)
     {
-        _win32ForTest = win32;
-        string engine = win32 ? "Win32" : "WPF";
-        Log.Info($"selftest: {engine} switcher");
         int checks = 0, failures = 0;
         string layoutTag = ""; // which layout a failure happened in
         void Fail(string message)
         {
             failures++;
-            if (failures <= 60) Log.Info($"selftest FAIL: [{engine}] " + layoutTag + message);
+            if (failures <= 60) Log.Info("selftest FAIL: " + layoutTag + message);
         }
 
         try
@@ -530,7 +519,7 @@ internal sealed partial class SwitcherController
                     Perform(WindowAction.AlwaysOnTop, probeItem, null);
                     await Settle();
                     checks += 2;
-                    if (!WindowActions.IsTopmost(hwnd)) Fail("always on top: not on top");
+                    if (!WindowActions.IsTopmost(hwnd)) Fail($"always on top: not on top (hung={Native.IsHungAppWindow(hwnd)}, blocked={BlockedByElevation(hwnd)})");
                     if (!SwitcherAbove()) Fail("always on top: the window covers the switcher");
                     Perform(WindowAction.AlwaysOnTop, probeItem, null);
                     await Settle();
@@ -731,18 +720,25 @@ internal sealed partial class SwitcherController
             _settingsOverride = null;
         }
 
-        Log.Info($"selftest ({engine} switcher): {checks} checks, {failures} failures");
+        Log.Info($"selftest: {checks} checks, {failures} failures");
         done(failures == 0);
     }
 
-    /// <summary>A throwaway top-level window of our own (the user's windows are never touched), shown without focus.</summary>
+    /// <summary>
+    /// A throwaway top-level window of our own (the user's windows are never touched), shown without
+    /// focus. A normal window, as apps' are (a tool window maximizes over the taskbar), kept out of
+    /// the taskbar by a hidden owner.
+    /// </summary>
     private static HiddenWindow TestWindow(string title, int x, int y)
     {
+        _testWindowOwner ??= new HiddenWindow("AltTab Everywhere test owner", static (uint _, nint _, nint _, out nint result) => { result = 0; return false; });
         var window = new HiddenWindow(title, static (uint _, nint _, nint _, out nint result) => { result = 0; return false; },
-            Interop.Win32.WS_OVERLAPPEDWINDOW, x, y, 420, 280);
+            Interop.Win32.WS_OVERLAPPEDWINDOW, x, y, 420, 280, exStyle: 0, owner: _testWindowOwner.Handle);
         Native.ShowWindow(window.Handle, 4 /* SW_SHOWNOACTIVATE */);
         return window;
     }
+
+    private static HiddenWindow? _testWindowOwner;
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]

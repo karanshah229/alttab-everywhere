@@ -42,17 +42,6 @@ public class AppIconsTests
     public void A_missing_file_gives_no_icon() =>
         Assert.Null(AppIcon.ForFile(@"C:\no\such\file.exe"));
 
-    [Fact]
-    public void The_wpf_image_is_converted_once_and_frozen_for_the_overlay_threads()
-    {
-        var icon = new AppIcon(2, 1, new byte[] { 10, 20, 30, 40, 0, 0, 0, 0 });
-        var image = WpfIcons.ToImage(icon);
-        Assert.NotNull(image);
-        Assert.True(image!.IsFrozen);
-        Assert.Same(image, WpfIcons.ToImage(icon));
-        Assert.Null(WpfIcons.ToImage(null));
-    }
-
     private static void AssertPremultipliedWithTransparency(AppIcon icon)
     {
         bool transparent = false, opaque = false;

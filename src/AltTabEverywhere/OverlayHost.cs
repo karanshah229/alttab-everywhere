@@ -2,15 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Runtime.CompilerServices;
-using System.Windows.Threading;
 
 namespace AltTabEverywhere;
 
 /// <summary>
-/// Runs one monitor's switcher (<see cref="Win32SwitcherWindow"/> or <see cref="SwitcherWindow"/>) on
-/// its own UI thread, so all monitors build and draw their switchers in parallel instead of one after
-/// another.
+/// Runs one monitor's <see cref="SwitcherWindow"/> on its own UI thread, so all monitors build and
+/// draw their switchers in parallel instead of one after another.
 ///
 /// Every call from the controller is queued onto the overlay's thread; events from the overlay come
 /// back on the controller's thread. Calls are queued in order per overlay, so e.g. an EndSession
@@ -19,8 +16,7 @@ namespace AltTabEverywhere;
 internal sealed class OverlayHost
 {
     private readonly ISwitcherView _window;
-    private readonly IUiQueue _thread;
-    private readonly bool _win32;
+    private readonly UiThread _thread;
 
     public MonitorInfo Monitor { get; }
     public IntPtr Handle { get; }
@@ -38,13 +34,11 @@ internal sealed class OverlayHost
     public event Action<int>? TileMoveHereClicked;
     public event Action<int, TileMenuCommand>? TileMenuChosen;
 
-    /// <param name="win32">The Win32 switcher (experimentalWin32Switcher) instead of the WPF one.</param>
-    public OverlayHost(MonitorInfo monitor, UiThread controller, bool win32 = false)
+    public OverlayHost(MonitorInfo monitor, UiThread controller)
     {
         Monitor = monitor;
-        _win32 = win32;
         ISwitcherView? window = null;
-        IUiQueue? queue = null;
+        UiThread? queue = null;
         Exception? error = null;
 
         using var ready = new ManualResetEventSlim();
@@ -52,10 +46,8 @@ internal sealed class OverlayHost
         {
             try
             {
-                // The Win32 switcher needs nothing but a message loop; the WPF one, WPF's dispatcher.
-                queue = win32 ? UiThread.Current : Wpf.Queue();
-
-                window = win32 ? new Win32SwitcherWindow(monitor) : Wpf.Window(monitor);
+                queue = UiThread.Current;
+                window = new SwitcherWindow(monitor);
                 window.TileClicked += index => controller.Post(() => TileClicked?.Invoke(index));
                 window.SwitcherDeactivated += () => controller.Post(() => Deactivated?.Invoke());
                 window.TileCloseRequested += index => controller.Post(() => TileCloseRequested?.Invoke(index));
@@ -72,9 +64,7 @@ internal sealed class OverlayHost
             {
                 ready.Set();
             }
-            if (error is not null) return;
-            if (win32) UiThread.Run();
-            else Wpf.Run();
+            if (error is null) UiThread.Run();
         })
         {
             IsBackground = true,
@@ -98,12 +88,10 @@ internal sealed class OverlayHost
 
     /// <summary>Builds the switcher cloaked; completes once its first frame has been drawn.</summary>
     public Task PrepareAsync(IReadOnlyList<SwitcherItem> items, int selected, Settings settings, int columns, string query) =>
-        _thread.InvokeAsync(async () =>
+        _thread.InvokeAsync(() =>
         {
             _window.SetCloaked(true);
-            _window.ShowSession(items, selected, settings, columns, query);
-            // The Win32 switcher has painted already; WPF renders in a later pass.
-            if (!_win32) await Wpf.AfterRender();
+            _window.ShowSession(items, selected, settings, columns, query); // paints before returning
         });
 
     /// <summary>Rebuilds the tiles of a visible switcher in place (e.g. after a window was closed).</summary>
@@ -146,39 +134,5 @@ internal sealed class OverlayHost
         {
             _thread.Shutdown();
         }
-    }
-
-    /// <summary>
-    /// Everything WPF, in methods of its own: .NET loads WPF only when one of them first runs, so a
-    /// process using the Win32 switcher never loads it. (Goes with the WPF switcher.)
-    /// </summary>
-    private static class Wpf
-    {
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static IUiQueue Queue() => new WpfQueue(Dispatcher.CurrentDispatcher);
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static ISwitcherView Window(MonitorInfo monitor)
-        {
-            Program.UseWpfSoftwareRendering();
-            return new SwitcherWindow(monitor);
-        }
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void Run() => Dispatcher.Run();
-
-        /// <summary>After WPF's render pass, so the first frame has been drawn.</summary>
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static async Task AfterRender() => await Dispatcher.Yield(DispatcherPriority.Background);
-    }
-
-    /// <summary>WPF's dispatcher, for the WPF switcher's threads (until that switcher goes).</summary>
-    private sealed class WpfQueue(Dispatcher dispatcher) : IUiQueue
-    {
-        public Task InvokeAsync(Action action) => dispatcher.InvokeAsync(action).Task;
-        public Task InvokeAsync(Func<Task> work) => dispatcher.InvokeAsync(work).Task.Unwrap();
-        // Normal priority, i.e. after every update already queued (Invoke's default, Send, would jump ahead).
-        public T Invoke<T>(Func<T> read) => dispatcher.Invoke(read, DispatcherPriority.Normal);
-        public void Shutdown() => dispatcher.InvokeShutdown();
     }
 }

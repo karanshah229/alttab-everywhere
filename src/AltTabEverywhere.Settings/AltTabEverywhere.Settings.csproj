@@ -35,7 +35,6 @@
     <Compile Include="..\AltTabEverywhere\SettingsFile.cs" Link="Shared\SettingsFile.cs" />
     <Compile Include="..\AltTabEverywhere\ShortcutKeys.cs" Link="Shared\ShortcutKeys.cs" />
     <Compile Include="..\AltTabEverywhere\Theme.cs" Link="Shared\Theme.cs" />
-    <Compile Include="..\AltTabEverywhere\WpfTheme.cs" Link="Shared\WpfTheme.cs" />
   </ItemGroup>
 
 </Project>
