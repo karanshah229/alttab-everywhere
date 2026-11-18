@@ -1,7 +1,7 @@
 <Project>
   <!-- Shared by the switcher (AltTabEverywhere) and the settings window (AltTabEverywhere.Settings). -->
   <PropertyGroup>
-    <Version>0.6.0</Version>
+    <Version>0.7.0</Version>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Copyright>Copyright (c) 2026 the AltTab Everywhere contributors</Copyright>
     <!-- Usings are explicit: the code base mixes Win32 and WPF names (Window, Point...). -->
