@@ -330,6 +330,8 @@ Results go to the log, and the exit code is 0 if every check passed:
 dotnet run --project src/AltTabEverywhere -- --selftest
 ```
 
+To test with 1 to 4 monitors without touching your own screens, and with real key presses, use the Hyper-V test VM: `tools/vmtest/vmtest.ps1`. It needs nothing installed beyond Windows' own Hyper-V; see [tools/vmtest/README.md](tools/vmtest/README.md).
+
 To check the window list against Windows, run `--list`. It writes both lists, the shell list (with each window's state: minimized, administrator, not responding, other desktop) and the fallback filter, to `%LOCALAPPDATA%\AltTabEverywhere\windows.txt`. This file contains window titles.
 
 ## Known limitations
