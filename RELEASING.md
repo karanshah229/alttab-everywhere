@@ -1,6 +1,6 @@
 # Releasing
 
-1. Set `<Version>` in `src/AltTabEverywhere/AltTabEverywhere.csproj` to the new version and commit.
+1. Set `<Version>` in `src/Directory.Build.props` (shared by both exes) to the new version and commit.
 2. Tag and push:
 
    ```bash
