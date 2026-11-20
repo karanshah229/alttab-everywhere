@@ -492,7 +492,6 @@ internal sealed partial class SwitcherController
                     _settingsOverride = SettingsStore.Deserialize(SettingsStore.Serialize(_store.Current));
                     _settingsOverride.ShowDesktopTile = false;
                     _settingsOverride.Layout = SwitcherLayout.Thumbnails;
-                    _settingsOverride.ShowThumbnails = true;
                     _settingsOverride.MinimizedPreviews = true;
                     _items = new List<SwitcherItem> { new(new[] { info }), new(new[] { real[0] }) };
                     _testItems = _items; // re-plans after an action keep these tiles

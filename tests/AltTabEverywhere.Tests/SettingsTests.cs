@@ -12,8 +12,21 @@ public class SettingsTests
 
         Assert.Equal(0, settings.ShowDelayMs);
         Assert.Equal(ShowOn.AllMonitors, settings.ShowOn);
-        Assert.True(settings.ShowThumbnails);
+        Assert.Equal(SwitcherLayout.Thumbnails, settings.Layout);
         Assert.False(settings.StayOpenAfterAltRelease);
+    }
+
+    /// <summary>
+    /// showThumbnails (v0.1) duplicated the "icons" layout and silently overrode "Live previews":
+    /// it's gone, and an old file that still has it loads fine, with previews.
+    /// </summary>
+    [Fact]
+    public void Old_showThumbnails_is_ignored()
+    {
+        var settings = SettingsStore.Deserialize("""{ "layout": "thumbnails", "showThumbnails": false, "showDesktopTile": true }""");
+        Assert.Equal(SwitcherLayout.Thumbnails, settings.Layout);
+        Assert.True(settings.ShowDesktopTile);
+        Assert.DoesNotContain("showThumbnails", SettingsStore.Serialize(settings));
     }
 
     [Fact]

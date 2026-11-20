@@ -142,7 +142,7 @@ internal sealed unsafe class SwitcherWindow : ISwitcherView, SwitcherAutomation.
         }
         _scale = GetDpiForWindow(Handle) / 96.0;
         _layout = settings.Layout;
-        _showThumbnails = settings.ShowThumbnails && settings.Layout == SwitcherLayout.Thumbnails;
+        _showThumbnails = settings.Layout == SwitcherLayout.Thumbnails; // only this layout has previews
         _minimizedPreviews = settings.MinimizedPreviews;
         _middleClickCloses = settings.MiddleClickCloses;
         _ctrlClickMovesHere = settings.CtrlClickMovesHere;

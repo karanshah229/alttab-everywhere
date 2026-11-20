@@ -199,8 +199,7 @@ Shift reverses direction, unless Shift is part of the shortcut. A shortcut that 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `layout` | `"thumbnails"` | How tiles look. `"thumbnails"`: a title and a live preview. `"icons"`: a title and a large app icon. `"list"`: one compact row per window (icon and full title) in a single column that scrolls. `"iconsOnly"`: small square icon tiles, with the selected window's title shown under the grid. Only `"thumbnails"` shows live previews, so the other three use less memory per open. Each shortcut can use its own layout |
-| `showThumbnails` | `true` | In the `"thumbnails"` layout: live window previews. `false` shows the app icon instead |
+| `layout` | `"thumbnails"` | How tiles look. `"thumbnails"`: a title and a live preview. `"icons"`: a title and a large app icon. `"list"`: one compact row per window (icon and full title) in a single column that scrolls. `"iconsOnly"`: small square icon tiles, with the selected window's title shown under the grid. Only `"thumbnails"` shows live previews, so the other three use less memory per open. Each shortcut can use its own layout. (Before 0.7.1, `showThumbnails: false` turned the previews into app icons; it's ignored now: use `"icons"`) |
 | `minimizedPreviews` | `true` | Minimized windows show their last image too, as the taskbar's previews do: Windows (DWM) keeps it, so this costs no extra memory. A window minimized before it ever drew (started minimized, for example) shows its icon. `false`: minimized windows always show their icon |
 | `tileWidth` | `240` | In the `"thumbnails"` layout: tile width, 80–600. Tiles shrink slightly when there are many windows, then the grid scrolls |
 | `thumbnailHeight` | `140` | Preview height, 50–400 |

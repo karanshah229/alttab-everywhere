@@ -287,9 +287,6 @@ internal sealed class Settings
     /// <summary>Badge on windows kept always on top.</summary>
     public bool AlwaysOnTopBadge { get; set; } = true;
 
-    /// <summary>Live DWM thumbnails. When false, tiles show the app icon only.</summary>
-    public bool ShowThumbnails { get; set; } = true;
-
     /// <summary>Minimized windows show their last image too (DWM keeps it, as for the taskbar previews); off: their icon.</summary>
     public bool MinimizedPreviews { get; set; } = true;
 
