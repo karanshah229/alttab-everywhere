@@ -16,10 +16,10 @@ internal static class ShellDesktop
     {
         // Shell.Application's IShellDispatch4::ToggleDesktop (documented), late-bound through
         // IDispatch by hand (see Com): created per use, so nothing stays loaded in between.
-        nint shell = Com.Create(ShellApplicationClsid, DispatchIid);
+        nint shell = Com.Create(ShellApplicationClsid, DispatchIid, out int created);
         if (shell == 0)
         {
-            Log.Info("show desktop: the shell couldn't be asked");
+            Log.Info($"show desktop: the shell couldn't be asked (0x{created:X8})");
             return false;
         }
         try
@@ -44,7 +44,7 @@ internal static class ShellDesktop
         }
     }
 
-    private static readonly Guid ShellApplicationClsid = new("13709620-C279-11CE-A49E-00AA0068B5E2");
+    internal static readonly Guid ShellApplicationClsid = new("13709620-C279-11CE-A49E-444553540000");
     private static readonly Guid DispatchIid = new("00020400-0000-0000-C000-000000000046");
 
     [StructLayout(LayoutKind.Sequential)]

@@ -66,6 +66,8 @@ Details:
 |---|---|
 | `selftest` | Two windows on every monitor, a screenshot of the switcher (`--demo`), then `--selftest` on every monitor |
 | `alttab` | Starts the app normally, holds Alt and presses Tab, takes a screenshot with the switcher open, releases Alt, and checks that the foreground window changed |
+| `desktop-tile` | Turns on `showDesktopTile`, switches to a window, then Alt+Tab, End, release: the desktop must have focus and the log must show no error |
+| `previews` | A window whose content changes ten times a second on monitor 1; with the switcher open, its tile on monitor 2 must change between two screenshots (live previews). Needs `-Monitors 2` or more |
 | `probe` | Used once when the VM is built: the monitors and the keyboard path work |
 
 A scenario is a PowerShell script that runs on the VM's desktop as the signed-in user, not elevated. These are available to it:
@@ -76,7 +78,10 @@ A scenario is a PowerShell script that runs on the VM's desktop as the signed-in
 | `$Monitors`, `$Out` | The monitor count, and the folder whose files come back as results |
 | `Wait-Screens [n]` | Waits until Windows shows n monitors (default: `$Monitors`) |
 | `Save-Screenshot name` | A PNG of all monitors |
-| `New-TestWindow title [-screen n -x -y -width -height]` | A plain window in its own process, on monitor n |
+| `New-TestWindow title [-screen n -x -y -width -height] [-live]` | A plain window in its own process, on monitor n. `-live`: its content changes ten times a second |
+| `Set-AppSettings json` | The app's `settings.json` for this run (write it before starting the app) |
+| `Get-ForegroundTitle` | The title of the window with focus |
+| `Compare-Screenshots a b rect` | How many pixels differ between two screenshots inside a rectangle, and where |
 | `Start-TestWindow file args -title text [-screen n ...]` | Starts a program and moves its window, found by title, to monitor n |
 | `Send-Keys lines` | Real key presses: `down 0x12`, `up 0x12`, `tap 0x09`, `text abc`, `wait 200` (virtual-key codes) |
 | `Press-AltTab [tabs] [holdMs]` | Alt+Tab, pressing Tab `tabs` times |

@@ -344,8 +344,15 @@ function Move-TestWindow([string] $title, [int] $screen = 0, [int] $x = 80, [int
     return $h
 }
 # A plain window in a process of its own, titled $title, on monitor $screen. Returns its handle.
-function New-TestWindow([string] $title, [int] $screen = 0, [int] $x = 80, [int] $y = 80, [int] $width = 800, [int] $height = 500) {
-    $code = "Add-Type -AssemblyName System.Windows.Forms; `$f = New-Object System.Windows.Forms.Form; `$f.Text = '$($title -replace "'", "''")'; [System.Windows.Forms.Application]::Run(`$f)"
+# -live: it shows a counter that changes number and colour ten times a second.
+function New-TestWindow([string] $title, [int] $screen = 0, [int] $x = 80, [int] $y = 80, [int] $width = 800, [int] $height = 500, [switch] $live) {
+    $content = if ($live) {
+        "`$l = New-Object System.Windows.Forms.Label; `$l.Dock = 'Fill'; `$l.Text = '0'; `$l.TextAlign = 'MiddleCenter'; " +
+        "`$l.Font = New-Object System.Drawing.Font('Segoe UI', 96); `$f.Controls.Add(`$l); " +
+        "`$t = New-Object System.Windows.Forms.Timer; `$t.Interval = 100; " +
+        "`$t.add_Tick({ `$v = [int] `$l.Text + 1; `$l.Text = [string] `$v; `$l.BackColor = [System.Drawing.Color]::FromArgb((`$v * 40) % 256, 120, 200) }); `$t.Start(); "
+    } else { "" }
+    $code = "Add-Type -AssemblyName System.Windows.Forms, System.Drawing; `$f = New-Object System.Windows.Forms.Form; `$f.Text = '$($title -replace "'", "''")'; $content[System.Windows.Forms.Application]::Run(`$f)"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
     Start-Process conhost.exe -ArgumentList "--headless", "powershell.exe", "-NoProfile", "-EncodedCommand", $encoded | Out-Null
     return Move-TestWindow $title $screen $x $y $width $height
@@ -368,6 +375,47 @@ function Send-Keys([string[]] $lines, [int] $timeoutSeconds = 60) {
     for ($i = 0; $i -lt $timeoutSeconds * 10 -and -not (Test-Path "C:\vmtest\keys\$($script:keyRequest).done"); $i++) { Start-Sleep -Milliseconds 100 }
     if (-not (Test-Path "C:\vmtest\keys\$($script:keyRequest).done")) { throw "The host didn't send keys within $timeoutSeconds s." }
 }
+# How many pixels differ between two screenshots (names in $Out, without .png) inside a rectangle
+# of the virtual screen, and the bounding box of the differences.
+Add-Type -ReferencedAssemblies System.Drawing @"
+using System; using System.Drawing; using System.Drawing.Imaging;
+public static class VmTestDiff {
+    public static int[] Compare(string a, string b, int x, int y, int w, int h) {
+        using (var ba = new Bitmap(a)) using (var bb = new Bitmap(b)) {
+            var r = new Rectangle(x, y, w, h);
+            BitmapData da = ba.LockBits(r, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            BitmapData db = bb.LockBits(r, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try {
+                int count = 0, minX = int.MaxValue, minY = int.MaxValue, maxX = -1, maxY = -1;
+                int[] rowA = new int[w], rowB = new int[w];
+                for (int j = 0; j < h; j++) {
+                    System.Runtime.InteropServices.Marshal.Copy(da.Scan0 + j * da.Stride, rowA, 0, w);
+                    System.Runtime.InteropServices.Marshal.Copy(db.Scan0 + j * db.Stride, rowB, 0, w);
+                    for (int i = 0; i < w; i++) {
+                        if (rowA[i] == rowB[i]) continue;
+                        count++;
+                        if (i < minX) minX = i; if (i > maxX) maxX = i; if (j < minY) minY = j; if (j > maxY) maxY = j;
+                    }
+                }
+                return new int[] { count, minX + x, minY + y, maxX + x, maxY + y };
+            } finally { ba.UnlockBits(da); bb.UnlockBits(db); }
+        }
+    }
+}
+"@
+function Compare-Screenshots([string] $a, [string] $b, [System.Drawing.Rectangle] $area) {
+    $v = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $r = [VmTestDiff]::Compare("$Out\$a.png", "$Out\$b.png", $area.X - $v.X, $area.Y - $v.Y, $area.Width, $area.Height)
+    [pscustomobject] @{ Pixels = $r[0]; Box = if ($r[0]) { "($($r[1]),$($r[2]))-($($r[3]),$($r[4]))" } else { "" } }
+}
+function Get-ForegroundTitle { [VmTestWin]::Title([VmTestWin]::GetForegroundWindow()) }
+# The app's settings for this run (JSON), written before it starts.
+function Set-AppSettings([string] $json) {
+    $dir = Join-Path $env:APPDATA "AltTabEverywhere"
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Set-Content (Join-Path $dir "settings.json") $json
+}
+
 function Press-AltTab([int] $tabs = 1, [int] $holdMs = 600) {
     $lines = @("down 0x12", "wait 50")
     for ($i = 0; $i -lt $tabs; $i++) { $lines += "tap 0x09", "wait 120" }

@@ -33,6 +33,34 @@ public class InteropTests
         return type == typeof(string) || type == typeof(StringBuilder) || type == typeof(char[]) || type == typeof(char);
     }
 
+    /// <summary>
+    /// Every COM class the switcher creates by hand must be registered with Windows. A mistyped
+    /// CLSID fails silently at run time ("class not registered"): v0.7.0's Show desktop tile.
+    /// </summary>
+    [DesktopFact]
+    public void Every_COM_class_the_switcher_creates_is_registered()
+    {
+        var classes = typeof(Native).Assembly.GetTypes()
+            .SelectMany(t => t.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
+            .Where(f => f.FieldType == typeof(Guid) && f.Name.EndsWith("Clsid", StringComparison.Ordinal))
+            .Select(f => (Name: $"{f.DeclaringType!.Name}.{f.Name}", Clsid: (Guid)f.GetValue(null)!))
+            .ToList();
+        Assert.NotEmpty(classes);
+        var missing = classes
+            .Where(c => Microsoft.Win32.Registry.ClassesRoot.OpenSubKey($@"CLSID\{{{c.Clsid}}}") is null)
+            .Select(c => $"{c.Name} {{{c.Clsid}}}")
+            .ToList();
+        Assert.Empty(missing);
+    }
+
+    [DesktopFact]
+    public void The_shell_object_for_Show_desktop_can_be_created()
+    {
+        nint shell = Com.Create(ShellDesktop.ShellApplicationClsid, new Guid("00020400-0000-0000-C000-000000000046"), out int hr);
+        try { Assert.True(shell != 0, $"CoCreateInstance failed: 0x{hr:X8}"); }
+        finally { Com.Release(shell); }
+    }
+
     [Fact]
     public void ToUnicodeEx_types_letters_without_harming_the_heap()
     {
