@@ -93,10 +93,11 @@ $driver = @{
 }
 
 function Step($text) { Write-Host ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $text) }
-function Self { (Get-Process -Id $PID).Path } # the same PowerShell (Windows PowerShell or pwsh)
-
+# The administrator halves always run in Windows PowerShell 5.1: Windows' image and feature
+# cmdlets (DISM) fail with "Class not registered" in PowerShell 7.
 function Invoke-Elevated([string[]] $arguments) {
-    $p = Start-Process (Self) -Verb RunAs -Wait -PassThru -ArgumentList (@(
+    $windowsPowerShell = Join-Path $env:windir "System32\WindowsPowerShell\v1.0\powershell.exe"
+    $p = Start-Process $windowsPowerShell -Verb RunAs -Wait -PassThru -ArgumentList (@(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"") + $arguments)
     return $p.ExitCode
 }
@@ -106,11 +107,12 @@ function Invoke-Elevated([string[]] $arguments) {
 # =====================================================================================
 if ($ElevatedSetup) {
     try {
-        $feature = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All
-        if (-not $feature) { throw "This edition of Windows has no Hyper-V (it needs Pro, Enterprise or Education)." }
-        if ($feature.State -ne "Enabled") {
-            Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -All -NoRestart | Out-Null
-        }
+        Write-Host "Turning on Hyper-V..."
+        & dism.exe /Online /Enable-Feature /FeatureName:Microsoft-Hyper-V-All /All /NoRestart
+        # 3010: done, restart needed. 0x800f080c: no such feature (Windows Home has no Hyper-V).
+        if ($LASTEXITCODE -eq -2146498548) { throw "This edition of Windows has no Hyper-V (it needs Pro, Enterprise or Education)." }
+        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3010) { throw "dism couldn't turn on Hyper-V (exit code $LASTEXITCODE)." }
+        Write-Host "Adding you to Hyper-V Administrators..."
         $group = (New-Object Security.Principal.SecurityIdentifier $hyperVAdmins).Translate([Security.Principal.NTAccount]).Value.Split("\")[-1]
         try { ([ADSI]"WinNT://./$group,group").Add("WinNT://$UserSid") }
         catch {
@@ -122,7 +124,7 @@ if ($ElevatedSetup) {
         exit 0
     }
     catch {
-        Write-Host "Setup failed: $_" -ForegroundColor Red
+        Write-Host "Setup failed: $_ ($($_.InvocationInfo.PositionMessage))" -ForegroundColor Red
         Read-Host "Press Enter to close"
         exit 1
     }
