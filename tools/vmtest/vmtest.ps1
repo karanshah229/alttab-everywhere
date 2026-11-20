@@ -23,8 +23,9 @@
       4. copies its screenshots and logs back, turns the VM off, and exits with its result.
 
   Keys reach the VM through Hyper-V's virtual keyboard, so the app sees them as real key presses
-  (it ignores simulated ones on purpose). The VM has no network and its clock doesn't follow this
-  PC's, so the evaluation copy of Windows never sees time pass.
+  (it ignores simulated ones on purpose). The VM has network only for a minute while it's built, to
+  activate the evaluation copy of Windows (-Offline skips that), and its clock doesn't follow this
+  PC's, so the 90-day evaluation never sees time pass.
 
   Everything lives in .vmtest\ next to this repository (git ignores it): downloads, the VM, and
   results\<time>-<scenario>\. About 35 GB in all. -Remove deletes the VM.
@@ -50,6 +51,9 @@ param(
     [switch] $WithSettings,
     # Leave the VM running afterwards, to look at it in Hyper-V Manager.
     [switch] $KeepRunning,
+    # Build the VM without the one minute of network it uses to activate Windows (it then shows a
+    # watermark and shuts down every hour).
+    [switch] $Offline,
     # Give up on a scenario after this many minutes.
     [int] $TimeoutMinutes = 15,
     # One time: turn on Hyper-V and add you to "Hyper-V Administrators" (administrator prompt, then restart).
@@ -72,6 +76,14 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+if ($PSVersionTable.PSEdition -eq "Desktop") {
+    # Started from PowerShell 7, Windows PowerShell inherits its module path and loads 7's copies of
+    # built-in modules, which fail here ("The member ... is already present"). Use 5.1's own.
+    $env:PSModulePath = @(
+        (Join-Path ([Environment]::GetFolderPath("MyDocuments")) "WindowsPowerShell\Modules"),
+        (Join-Path $env:ProgramFiles "WindowsPowerShell\Modules"),
+        (Join-Path $env:windir "System32\WindowsPowerShell\v1.0\Modules")) -join ";"
+}
 $repo = Split-Path (Split-Path $PSScriptRoot)
 # Not a parameter default: Windows PowerShell 5.1 (the administrator halves) has no $PSScriptRoot there.
 if (-not $Root) { $Root = Join-Path $repo ".vmtest" }
@@ -85,7 +97,8 @@ $iso = @{
     # https://www.microsoft.com/evalcenter/download-windows-11-enterprise
     Url    = "https://software-static.download.prss.microsoft.com/dbazure/26300.9457.260913-1737.26h2_ge_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso"
     Size   = 8225329152
-    Sha256 = "" # Microsoft doesn't publish one: the first download prints it, to pin here.
+    # Microsoft doesn't publish one: this is from the first download, whose setup.exe is Microsoft-signed.
+    Sha256 = "bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38"
 }
 $driver = @{
     # Virtual Display Driver 25.7.23 (MIT, signed by SignPath Foundation):
@@ -569,11 +582,18 @@ function New-TestVM {
     $s = Wait-GuestSession 30
     try {
         Step "Installing the virtual display driver and quieting the desktop"
-        Invoke-Command -Session $s {
+        Invoke-Command -Session $s -ArgumentList $w, $h {
+            param($width, $height)
             $ErrorActionPreference = "Stop"
-            # The driver's settings: one virtual monitor to start with.
+            # The driver's settings: one virtual monitor to start with, at the VM's resolution (the
+            # first one listed is the monitor's preferred mode).
             New-Item -ItemType Directory -Force "C:\VirtualDisplayDriver" | Out-Null
-            (Get-Content "C:\vmtest\driver\vdd_settings.xml" -Raw) -replace "<count>\d+</count>", "<count>1</count>" |
+            $list = @("${width}x$height", "1920x1080", "2560x1440", "3840x2160", "1366x768") | Select-Object -Unique | ForEach-Object {
+                $mw, $mh = $_ -split "x"
+                "<resolution><width>$mw</width><height>$mh</height><refresh_rate>60</refresh_rate></resolution>"
+            }
+            $modes = "<resolutions>" + ($list -join "") + "</resolutions>"
+            (Get-Content "C:\vmtest\driver\vdd_settings.xml" -Raw) -replace "<count>\d+</count>", "<count>1</count>" -replace "(?s)<resolutions>.*</resolutions>", $modes |
                 Set-Content "C:\VirtualDisplayDriver\vdd_settings.xml" -Encoding UTF8
             # Trust the driver's publisher inside this VM only, so installing it doesn't stop at a prompt.
             $signer = (Get-AuthenticodeSignature "C:\vmtest\driver\mttvdd.cat").SignerCertificate
@@ -606,16 +626,17 @@ public static class RootDevice {
 
             # Nothing that would cover the screen or interrupt a test.
             & powercfg /change monitor-timeout-ac 0; & powercfg /change standby-timeout-ac 0; & powercfg /hibernate off
+            # (New-Item -Force on an existing key would delete and recreate it.)
+            function Set-Dword($key, $name) {
+                if (-not (Test-Path $key)) { New-Item $key -Force | Out-Null }
+                Set-ItemProperty $key $name $args[0] -Type DWord
+            }
             $policies = "HKLM:\SOFTWARE\Policies\Microsoft\Windows"
-            New-Item -Force "$policies\Personalization" | Out-Null
-            Set-ItemProperty "$policies\Personalization" NoLockScreen 1 -Type DWord
-            New-Item -Force "$policies\CloudContent" | Out-Null
-            Set-ItemProperty "$policies\CloudContent" DisableWindowsConsumerFeatures 1 -Type DWord
-            Set-ItemProperty "$policies\CloudContent" DisableSoftLanding 1 -Type DWord
-            New-Item -Force "HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications" | Out-Null
-            Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications" ToastEnabled 0 -Type DWord
-            New-Item -Force "HKCU:\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement" | Out-Null
-            Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement" ScoobeSystemSettingEnabled 0 -Type DWord
+            Set-Dword "$policies\Personalization" NoLockScreen 1
+            Set-Dword "$policies\CloudContent" DisableWindowsConsumerFeatures 1
+            Set-Dword "$policies\CloudContent" DisableSoftLanding 1
+            Set-Dword "HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications" ToastEnabled 0
+            Set-Dword "HKCU:\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement" ScoobeSystemSettingEnabled 0
 
             # The task that runs scenarios on the VM's desktop as the signed-in user, not elevated.
             # conhost --headless: no console window that would become one of the windows under test.
@@ -624,6 +645,35 @@ public static class RootDevice {
             $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1)
             Register-ScheduledTask -TaskName "vmtest" -Action $action -Principal $principal -Settings $settings -Force | Out-Null
         }
+
+        # The evaluation copy of Windows has to activate online once, or it nags and shuts down every
+        # hour. A network adapter on Hyper-V's built-in Default Switch, just for that, then removed.
+        $defaultSwitch = Get-VMSwitch -Id "c08cb7b8-9b3c-408e-8e30-5e16a3aeb444" -ErrorAction SilentlyContinue
+        if ($Offline) { Step "Not activating Windows (-Offline): it will show a watermark and shut down every hour" }
+        elseif (-not $defaultSwitch) { Step "No Default Switch in Hyper-V, so Windows can't activate: it will show a watermark and shut down every hour" }
+        else {
+            Step "Activating Windows (network on for a minute, then removed)"
+            Add-VMNetworkAdapter -VM $vm -SwitchName $defaultSwitch.Name -Name "activation"
+            try {
+                $licensed = Invoke-Command -Session $s {
+                    # Wait for an address from the Default Switch's DHCP.
+                    for ($i = 0; $i -lt 30 -and -not (Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 2 }
+                    # Windows starts activating by itself once it has a network; /ato meanwhile says
+                    # 0xC004E028 (already in progress). Ask again until it's done, for up to 2 minutes.
+                    for ($i = 0; $i -lt 12; $i++) {
+                        if ((Get-CimInstance SoftwareLicensingProduct -Filter "PartialProductKey IS NOT NULL AND Name LIKE 'Windows%'").LicenseStatus -eq 1) { return $true }
+                        & cscript //nologo "$env:windir\System32\slmgr.vbs" /ato | Out-Null
+                        Start-Sleep -Seconds 10
+                    }
+                    return $false
+                }
+                Step $(if ($licensed) { "Windows is activated" } else { "Windows didn't activate (no internet from the VM?): it will show a watermark and shut down every hour" })
+            }
+            finally { Get-VMNetworkAdapter -VM $vm -Name "activation" | Remove-VMNetworkAdapter }
+        }
+
+        # Windows opens the Start menu at the first sign-in: close it, so tests start on a clear desktop.
+        Send-VMKeys @("tap 0x1B", "wait 1000")
 
         # A first scenario checks that the desktop, the monitors and the keyboard path work.
         $probe = Join-Path $PSScriptRoot "scenarios\probe.ps1"

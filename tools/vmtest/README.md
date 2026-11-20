@@ -22,7 +22,9 @@ Then run a test:
 
 The exit code is 0 if the scenario passed. Screenshots, the scenario's log and the app's log go to `.vmtest\results\<time>-<scenario>-<monitors>mon\`.
 
-The first run builds the VM, which takes about 30 minutes and needs one administrator prompt (to write Windows onto the virtual disk). Every run after that takes a minute or two.
+The first run builds the VM: the download (about 25 minutes at 5 MB/s) and then about 10 minutes, with one administrator prompt (to write Windows onto the virtual disk). Every run after that takes about half a minute plus the scenario: `alttab` takes 30 seconds in all, `selftest` about 4 minutes.
+
+It works from PowerShell 7 or Windows PowerShell 5.1. The administrator steps always run in Windows PowerShell 5.1, since Windows' image cmdlets don't work in PowerShell 7.
 
 ## How it works
 
@@ -31,14 +33,14 @@ The first run builds the VM, which takes about 30 minutes and needs one administ
 | Turn on Hyper-V | Once (`-Setup`) | Turns on the Hyper-V feature and adds you to "Hyper-V Administrators", so later runs need no administrator prompt. WSL2 and Docker keep working: they already run on the same hypervisor |
 | Download | First run | Microsoft's free Windows 11 Enterprise evaluation ISO (8.2 GB) and the [Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) (130 KB), both from pinned URLs. The driver is checked against a pinned SHA-256. The ISO's `setup.exe` must be signed by Microsoft, and the script prints the ISO's SHA-256 so it can be pinned too |
 | Build the VM | First run | Writes Windows straight onto a virtual disk with an answer file that skips every setup screen and signs in a local account automatically. The account's random password is kept encrypted for you alone (Windows DPAPI) in `.vmtest\vm\credential.xml` |
-| Prepare it | First run | Installs the virtual display driver, turns off sleep, the lock screen and notifications, checks that the monitors and keyboard work, then saves a "ready" checkpoint |
+| Prepare it | First run | Installs the virtual display driver, turns off sleep, the lock screen and notifications, activates Windows (see below), checks that the monitors and keyboard work, then saves a "ready" checkpoint |
 | Test | Every run | Builds the app from this source, restores the checkpoint, copies the build in, sets the monitor count, runs the scenario on the VM's desktop, copies the results back and turns the VM off |
 
 Details:
 
 - **Real key presses.** The app ignores simulated keys on purpose, so scenarios ask the host for keys, which it types through Hyper-V's virtual keyboard. The VM sees them as real key presses.
-- **No network.** The VM has no network adapter: no updates, and nothing leaves it.
-- **The evaluation never expires.** The VM's clock doesn't follow this PC's, so after the checkpoint is restored, Windows never sees time pass. If it ever says it's expired, rebuild with `-Rebuild`.
+- **Network for one minute, then none.** The evaluation copy of Windows has to activate online once; unactivated, it shows a watermark and shuts down every hour. So while the VM is built, it gets a network adapter on Hyper-V's built-in Default Switch, activates (about 15 seconds), and the adapter is removed before the checkpoint. Tests run with no network: no updates, and nothing leaves the VM. `-Offline` skips activation altogether.
+- **The evaluation never expires.** It's valid for 90 days from the build, and the VM's clock doesn't follow this PC's, so after the checkpoint is restored, Windows never sees time pass. If it ever says it's expired, rebuild with `-Rebuild`.
 - **Resources.** The VM uses 4 GB of memory and 2 processors, and only while a test runs. It's off the rest of the time. Disk: about 35 GB in `.vmtest\` next to the repository, which git ignores.
 
 ## Options
@@ -50,6 +52,7 @@ Details:
 | `-AppDir` | | Test this folder (the switcher's publish output) instead of building the app |
 | `-WithSettings` | off | Also build the settings window into the VM (self-contained, about 150 MB more to copy) |
 | `-KeepRunning` | off | Leave the VM running afterwards, to look at it in Hyper-V Manager |
+| `-Offline` | off | Build the VM without its minute of network, so Windows isn't activated (a watermark, and a shutdown every hour) |
 | `-TimeoutMinutes` | `15` | Give up on a scenario after this long (exit code 2) |
 | `-Setup` | | Turn on Hyper-V and add you to Hyper-V Administrators |
 | `-Rebuild` | | Delete the VM and build it again from the downloaded ISO |
