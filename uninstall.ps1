@@ -19,6 +19,14 @@ param(
     [switch] $Elevated
 )
 $ErrorActionPreference = "Stop"
+if ($PSVersionTable.PSEdition -eq "Desktop") {
+    # The administrator step runs in Windows PowerShell. Started from PowerShell 7, it inherits 7's
+    # module path and loads 7's copies of built-in modules, which fail here (no Cert: drive, for one).
+    $env:PSModulePath = @(
+        (Join-Path ([Environment]::GetFolderPath("MyDocuments")) "WindowsPowerShell\Modules"),
+        (Join-Path $env:ProgramFiles "WindowsPowerShell\Modules"),
+        (Join-Path $env:windir "System32\WindowsPowerShell\v1.0\Modules")) -join ";"
+}
 $appName = "AltTab Everywhere"
 $userDir = Join-Path $env:LOCALAPPDATA "Programs\$appName"
 $adminDir = Join-Path $env:ProgramFiles $appName
