@@ -59,7 +59,7 @@ param(
     # Delete the VM. Downloads are kept; delete .vmtest\downloads yourself to free them.
     [switch] $Remove,
     # Where the VM, downloads and results go.
-    [string] $Root = (Join-Path (Split-Path (Split-Path $PSScriptRoot)) ".vmtest"),
+    [string] $Root, # default: .vmtest next to the repository
     # VM size.
     [int] $MemoryMB = 4096,
     [int] $Processors = 2,
@@ -73,6 +73,8 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $repo = Split-Path (Split-Path $PSScriptRoot)
+# Not a parameter default: Windows PowerShell 5.1 (the administrator halves) has no $PSScriptRoot there.
+if (-not $Root) { $Root = Join-Path $repo ".vmtest" }
 $vmName = "AltTab Everywhere test"
 $guestUser = "tester"
 $hyperVAdmins = "S-1-5-32-578" # the "Hyper-V Administrators" group, in any language
